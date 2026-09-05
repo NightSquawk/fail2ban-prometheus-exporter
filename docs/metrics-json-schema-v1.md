@@ -116,7 +116,7 @@ sections are empty. This mirrors `f2b_up 0` on the Prometheus path.
     "version": "1.2.0-beta",
     "commit": "c890612"
   },
-  "host":  { "hostname": "ovhlax-nst9f63" },
+  "host":  { "hostname": "example-host-01" },
   "labels": { "customerId": "", "customerName": "", "tenantId": "" },
   "fail2ban": {
     "up": true,
