@@ -100,6 +100,22 @@ considered changed when the ban *set* changes, not when time passes. With the
 default `--collector.f2b.database-cache-ttl` of 60s, a poller faster than the
 cache TTL will typically see `304`.
 
+The `errors.*` counters are **not** excluded, and this has a consequence worth
+stating plainly: they are cumulative, so while the fail2ban socket is down —
+or on any gather that records an error — every poll yields a different digest
+and `If-None-Match` never matches. Caching is effectively suspended for as long
+as the exporter is degraded.
+
+That is deliberate rather than an oversight. A `304` asserts that the consumer's
+cached representation is still current, and an advanced error counter makes that
+false, since `errors.*` is part of the body. The wall-clock fields above are
+excluded only because they change on *every* request regardless of state, which
+would make the ETag useless in all conditions; an error counter changes only
+when something actually went wrong. The cost is small in practice, because the
+state that causes the churn is also the state in which the jail-derived sections
+are empty and the body is at its smallest. Consumers must not read a run of
+`200`s as evidence that the ban set is churning.
+
 ### 1.4. Errors
 
 Failures that cannot be represented in the schema return the status below and

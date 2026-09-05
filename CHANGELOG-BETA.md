@@ -12,6 +12,8 @@ This document tracks beta releases and pre-release versions.
 - `--collector.f2b.ip-anonymize=none|mask|hash` with `--collector.f2b.ip-mask-bits-v4` / `-v6` and `--collector.f2b.ip-hash-salt`, for deployments that cannot export attacker addresses. Geo lookups and attack-pattern detection keep using the real address
 - A promlint test over the golden `/metrics` fixture, so a new metric cannot land with a name or type that Prometheus conventions reject
 - Tests for the textfile collector, the jail filter and IP anonymizer, socket timeout behaviour, and scrape-timeout header parsing
+- `GET /metrics.json`, a schema-v1 JSON snapshot of fail2ban state behind the **same** authentication as `/metrics` — there is no unauthenticated path to this data. `?include=` selects which sections to gather and `?maxIps=` caps `bans.items`; a strong `ETag` over a wall-clock-stripped projection lets a poller send `If-None-Match` and get a `304` back for an unchanged snapshot instead of re-downloading it, while fail2ban stays up and unchanged — a persistently down or erroring socket advances `errors.socketConn`/`errors.socketReq` on every gather, which is not excluded from the digest, so a `304` should not be expected in that state. See [`docs/metrics-json-schema-v1.md`](docs/metrics-json-schema-v1.md) for the full field-by-field contract
+- `/health` now reports the exporter's name and version in its body by default, so an operator hitting the endpoint learns what's actually running there. `--web.health.minimal` / `F2B_WEB_HEALTH_MINIMAL` restores the bare `{"healthy":bool}` shape for anyone who considers the version string a disclosure on an unauthenticated endpoint
 
 ### Changed
 - **Breaking:** `f2b_errors` is renamed `f2b_errors_total`. The bundled Grafana dashboard is updated; external dashboards and alerting rules referencing the old name need updating
@@ -22,10 +24,13 @@ This document tracks beta releases and pre-release versions.
 - The HTTP server uses its own `ServeMux` rather than `http.DefaultServeMux`
 - Socket errors are now wrapped with `%w`, so callers can match them with `errors.Is`
 - Dependency bump pulled in by exporter-toolkit: `client_golang` 1.21.1 → 1.23.2, `prometheus/common` 0.63.0 → 0.70.1
+- The collector is now split into a domain snapshot (`collector/f2b/snapshot.go`) and a metric-emission step (`flatten.go`) that renders it as Prometheus metrics, with `Collect()` reduced to snapshot-then-flatten; `/metrics` stays byte-identical, pinned by the golden fixture (`collector/f2b/testdata/metrics.golden`). One intentional behavioral change ships alongside the refactor: ban age and remaining time (`f2b_ban_age_seconds`, `f2b_ban_duration_remaining_seconds`, and their `/metrics.json` equivalents) now derive from a single instant captured at the start of the gather, rather than a fresh clock read taken separately for each metric partway through a collection — the two families can no longer drift apart within one scrape
 
 ### Fixed
 - Textfile metrics corrupted the scrape payload for any client sending `Accept-Encoding: gzip` — which Prometheus always does. The raw file bytes were appended after promhttp had already written and compressed the response body
 - A wedged fail2ban server blocked a scrape indefinitely: no read, write or dial deadline was ever set on the unix socket. Because a collection holds a mutex for its full duration, every subsequent scrape queued behind the stuck one and goroutines accumulated
+- `/health` no longer advances `f2b_errors_total`. It is unauthenticated, so any caller able to reach the port could previously inflate a counter operators alert on, simply by polling `/health` while fail2ban was down
+- The health probe now closes the socket it opens. It never did, so every probe leaked a file descriptor — at the container healthcheck's 10s interval, a slow resource exhaustion
 
 ## [1.1.0-beta] - 2026-08-07
 

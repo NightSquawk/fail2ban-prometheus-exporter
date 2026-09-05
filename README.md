@@ -175,6 +175,42 @@ Two things are worth knowing before turning this on:
 
 Geo lookups always use the real address, so country and city labels and the geographic aggregates are unaffected by either mode. Attack-pattern detection also uses real addresses, so brute-force detection is not weakened by masking.
 
+### 2.6. JSON metrics
+
+For a consumer that wants fail2ban state as data rather than as Prometheus exposition text, the exporter also serves `GET /metrics.json`: the same fail2ban snapshot `/metrics` is built from, already joined into one object per ban instead of the eight separate metric families (`f2b_banned_ip`, `f2b_ban_age_seconds`, `f2b_ban_duration_remaining_seconds`, `f2b_ip_ban_count_total`, ...) a text-format consumer would otherwise have to re-join itself on `(jail, ip)`.
+
+`/metrics.json` sits behind the **same** authentication as `/metrics` — whichever of `--web.config-file` or the deprecated `--web.basic-auth.*` flags is configured (see [4](#4-securing-the-metrics-endpoint)). It is registered through the same middleware as `/metrics`, never bare like `/health`; there is no unauthenticated path to fail2ban state.
+
+**Selecting data with `?include=` and `?maxIps=`**
+
+`include` is a comma-separated list choosing which sections to gather — `jails`, `bans`, `patterns`, `geo`, `activity`, `alerts` (default `jails,alerts`) — and `maxIps` caps how many rows `bans.items` returns, subject to the `--collector.f2b.max-ip-metrics` ceiling ([2.3](#23-cardinality-and-scrape-cost)).
+
+```bash
+curl -u prometheus:changeme \
+  'http://localhost:9191/metrics.json?include=jails,bans&maxIps=50'
+```
+
+**Polling efficiently with `ETag` / `If-None-Match`**
+
+Every response carries a strong `ETag` computed over the snapshot with wall-clock fields (timestamps, ban age, remaining time) stripped out, so an unchanged fail2ban state produces the same `ETag` across requests **while fail2ban stays up and reachable**. Send it back on the next poll to get a `304 Not Modified` with an empty body instead of re-fetching state that has not changed:
+
+```bash
+etag=$(curl -s -D - -o /dev/null -u prometheus:changeme \
+  'http://localhost:9191/metrics.json?include=bans' | grep -i '^etag:' | cut -d' ' -f2 | tr -d '\r')
+
+curl -u prometheus:changeme -H "If-None-Match: $etag" \
+  'http://localhost:9191/metrics.json?include=bans'
+# -> 304 Not Modified once fail2ban's state has not changed
+```
+
+This does not hold while the fail2ban socket is down or erroring: `errors.socketConn` / `errors.socketReq` are counters on the collector that advance on every failed dial or request, they are **not** excluded from the ETag digest, and a persistently down or timing-out socket therefore changes the digest on every single gather. A poller hitting a down `/metrics.json` should expect `200` every time, never `304`, for as long as fail2ban stays unreachable — exactly the incident scenario an operator is most likely to be repeatedly polling during.
+
+Polling `/metrics.json` does not consume an alert edge: gathering for this endpoint never advances the same pending-alert state that a `/metrics` scrape does, so `newCountries` and `repeatOffenderSpike` stay pending until a `/metrics` scrape observes them. In practice this means `/metrics` and `/metrics.json` can be polled side by side — a JSON poller never steals an alert edge out from under Prometheus, or vice versa.
+
+`/metrics.json` reflects fail2ban state only. It does **not** include textfile-collector output (see [6](#6-textfile-metrics)) — those are ordinary Prometheus metrics from an independent collector with no relationship to the fail2ban domain snapshot this endpoint serves.
+
+**[`docs/metrics-json-schema-v1.md`](docs/metrics-json-schema-v1.md) is the versioned schema contract** for this endpoint: every field, ordering rule, truncation rule and anonymization rule, and the compatibility guarantees for `schemaVersion: 1`. Read it before writing anything that parses the response.
+
 ## 3. Configuration
 
 The exporter is configured with CLI flags and environment variables.
@@ -196,6 +232,10 @@ Flags:
       --web.config-file=STRING         Path to a prometheus/exporter-toolkit web config file,
                                        enabling TLS, mTLS and multi-user basic auth
                                        ($F2B_WEB_CONFIG_FILE)
+      --web.health.minimal             Omit exporter name and version from /health, for
+                                       operators who do not want an unauthenticated endpoint
+                                       disclosing the running version
+                                       ($F2B_WEB_HEALTH_MINIMAL)
       --collector.f2b.socket="/var/run/fail2ban/fail2ban.sock"
                                        Path to the fail2ban server socket ($F2B_COLLECTOR_SOCKET)
       --collector.f2b.database=""      Path to the fail2ban SQLite database (e.g.
@@ -285,6 +325,7 @@ If both are specified, the CLI flag takes precedence.
 | `F2B_COLLECTOR_TEXT_PATH`       | `--collector.textfile.directory`                  |
 | `F2B_WEB_LISTEN_ADDRESS`        | `--web.listen-address`                            |
 | `F2B_WEB_CONFIG_FILE`           | `--web.config-file`                               |
+| `F2B_WEB_HEALTH_MINIMAL`        | `--web.health.minimal`                            |
 | `F2B_WEB_BASICAUTH_USER`        | `--web.basic-auth.username`                       |
 | `F2B_WEB_BASICAUTH_PASS`        | `--web.basic-auth.password`                       |
 | `F2B_EXIT_ON_SOCKET_CONN_ERROR` | `--collector.f2b.exit-on-socket-connection-error` |
@@ -331,6 +372,12 @@ A wedged fail2ban server used to hang a scrape indefinitely, and because a colle
 - `--collector.f2b.timeout` (default `5s`) bounds connecting to the fail2ban socket and each individual command sent over it. Set it to `0` to restore the old unbounded behaviour.
 - The `X-Prometheus-Scrape-Timeout-Seconds` header that Prometheus sends on every scrape bounds the whole gather. If it is exceeded the exporter returns `503` instead of holding the connection open.
 
+### 4.2. Health checks and version disclosure
+
+`/health` is deliberately **not** behind `--web.config-file` or `--web.basic-auth.*`, and this does not change no matter which of them is configured. The container healthcheck baked into the image is an unauthenticated `curl --fail` that only ever looks at the HTTP status code (`200` healthy, `500` unhealthy), so this one endpoint has to stay reachable with no credentials at all.
+
+By default its body also reports the exporter's name and version, e.g. `{"healthy":true,"exporter":"fail2ban-prometheus-exporter","version":"1.2.0-beta"}`. Because the endpoint is unauthenticated, that means anyone who can reach the port — not just Prometheus — can learn the exact running version with no credentials. Set `--web.health.minimal` (`$F2B_WEB_HEALTH_MINIMAL`) to restore the bare `{"healthy":true}` body if that is a disclosure you would rather not make.
+
 ## 5. Building from source
 
 Building from source has the following dependencies:
@@ -376,6 +423,8 @@ For more flexibility the exporter also allows exporting metrics collected from a
 To enable textfile metrics provide the directory to read files from with the `--collector.textfile.directory` flag.
 
 Each `.prom` file is parsed as Prometheus text exposition format and its samples are exported alongside the exporter's own metrics. Counters, gauges, untyped metrics, summaries, histograms and explicit timestamps are all supported.
+
+Textfile metrics are registered as an independent `prometheus.Collector` and only ever appear on `/metrics`. They carry no relationship to the fail2ban domain snapshot, so **[`/metrics.json`](#26-json-metrics) does not include them** — a consumer that needs textfile data has to read `/metrics`.
 
 A file that cannot be read or parsed is skipped rather than breaking the scrape, and a file that redefines a metric family another file already defined is skipped too — the first file to define a name wins. Either case is reported through `textfile_error`:
 
