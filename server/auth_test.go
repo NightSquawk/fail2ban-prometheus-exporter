@@ -24,7 +24,7 @@ func executeAuthMiddlewareTest(t *testing.T, authMatches bool, expectedCode int,
 		callCount++
 	}
 
-	handler := AuthMiddleware(testHandler, testAuthProvider{match: authMatches})
+	handler := AuthMiddleware(http.HandlerFunc(testHandler), testAuthProvider{match: authMatches})
 	recorder := httptest.NewRecorder()
 	request := newTestRequest()
 	handler.ServeHTTP(recorder, request)

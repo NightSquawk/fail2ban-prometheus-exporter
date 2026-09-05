@@ -2,15 +2,20 @@ package socket
 
 import (
 	"fmt"
-	"github.com/kisielk/og-rek"
-	"github.com/nlpodyssey/gopickle/types"
 	"net"
 	"strings"
+	"time"
+
+	"github.com/kisielk/og-rek"
+	"github.com/nlpodyssey/gopickle/types"
 )
 
 type Fail2BanSocket struct {
 	socket  net.Conn
 	encoder *ogórek.Encoder
+	// timeout bounds each individual command (write + read). Zero disables
+	// deadlines, restoring the pre-1.2 behaviour of blocking indefinitely.
+	timeout time.Duration
 }
 
 type JailStats struct {
@@ -21,14 +26,33 @@ type JailStats struct {
 	BannedIPList  string // Comma-separated list of banned IPs
 }
 
+// ConnectToSocket opens the fail2ban socket with no I/O deadlines. Prefer
+// ConnectToSocketTimeout: a wedged fail2ban server otherwise blocks the caller
+// forever, and since Collect holds a mutex for its whole duration, every
+// subsequent scrape queues behind it.
 func ConnectToSocket(path string) (*Fail2BanSocket, error) {
-	c, err := net.Dial("unix", path)
+	return ConnectToSocketTimeout(path, 0)
+}
+
+// ConnectToSocketTimeout opens the fail2ban socket, bounding both the dial and
+// every subsequent command by timeout. A zero timeout disables deadlines.
+func ConnectToSocketTimeout(path string, timeout time.Duration) (*Fail2BanSocket, error) {
+	var (
+		c   net.Conn
+		err error
+	)
+	if timeout > 0 {
+		c, err = net.DialTimeout("unix", path, timeout)
+	} else {
+		c, err = net.Dial("unix", path)
+	}
 	if err != nil {
 		return nil, err
 	}
 	return &Fail2BanSocket{
 		socket:  c,
 		encoder: ogórek.NewEncoder(c),
+		timeout: timeout,
 	}, nil
 }
 
@@ -201,8 +225,10 @@ func newBadFormatError(command string, data interface{}) error {
 	return fmt.Errorf("(%s) unexpected response format - cannot parse: %v", command, data)
 }
 
+// newConnectionError wraps rather than formats the cause so callers can test
+// for os.ErrDeadlineExceeded and friends with errors.Is.
 func newConnectionError(command string, err error) error {
-	return fmt.Errorf("(%s) failed to send command through socket: %v", command, err)
+	return fmt.Errorf("(%s) failed to send command through socket: %w", command, err)
 }
 
 func trimSpaceForAll(slice []string) []string {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"time"
 
 	"github.com/nlpodyssey/gopickle/pickle"
 )
@@ -20,6 +21,14 @@ const (
 )
 
 func (s *Fail2BanSocket) sendCommand(command []string) (interface{}, error) {
+	// One deadline for the whole round trip: a half-written command followed by
+	// a server that never answers has to fail the same way as a refused write.
+	if s.timeout > 0 {
+		if err := s.socket.SetDeadline(time.Now().Add(s.timeout)); err != nil {
+			return nil, err
+		}
+		defer func() { _ = s.socket.SetDeadline(time.Time{}) }()
+	}
 	err := s.write(command)
 	if err != nil {
 		return nil, err

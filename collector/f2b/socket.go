@@ -18,7 +18,7 @@ func getCustomerLabels(customerID, customerName, tenantID string) []string {
 
 var (
 	metricErrorCount = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, "", "errors"),
+		prometheus.BuildFQName(namespace, "", "errors_total"),
 		"Number of errors found since startup",
 		[]string{"type", "system", "customer_id", "customer_name", "tenant_id"}, nil,
 	)
@@ -37,6 +37,8 @@ var (
 		"Number of current failures on this jail's filter",
 		[]string{"jail", "system", "customer_id", "customer_name", "tenant_id"}, nil,
 	)
+	// Reported as a counter: fail2ban's "Total failed" only resets when the
+	// server restarts, which is exactly counter-reset semantics.
 	metricJailFailedTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "", "jail_failed_total"),
 		"Number of total failures on this jail's filter",
@@ -47,6 +49,7 @@ var (
 		"Number of IPs currently banned in this jail",
 		[]string{"jail", "system", "customer_id", "customer_name", "tenant_id"}, nil,
 	)
+	// Reported as a counter, for the same reason as metricJailFailedTotal.
 	metricJailBannedTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "", "jail_banned_total"),
 		"Total number of IPs banned by this jail (includes expired bans)",
@@ -253,6 +256,10 @@ func (c *Collector) collectJailMetrics(ch chan<- prometheus.Metric, s *socket.Fa
 		log.Print(err)
 	}
 	if err == nil {
+		// jail_count reports what this exporter exports, so it counts the jails
+		// left after --collector.f2b.jail-include/-exclude, not the jails fail2ban
+		// has configured.
+		jails = c.jails.filterJails(jails)
 		count = float64(len(jails))
 	}
 	customerLabels := getCustomerLabels(c.customerID, c.customerName, c.tenantID)
@@ -281,7 +288,7 @@ func (c *Collector) collectJailStatsMetric(ch chan<- prometheus.Metric, s *socke
 		append([]string{jail, c.hostname}, customerLabels...)...,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		metricJailFailedTotal, prometheus.GaugeValue, float64(stats.FailedTotal),
+		metricJailFailedTotal, prometheus.CounterValue, float64(stats.FailedTotal),
 		append([]string{jail, c.hostname}, customerLabels...)...,
 	)
 	ch <- prometheus.MustNewConstMetric(
@@ -289,7 +296,7 @@ func (c *Collector) collectJailStatsMetric(ch chan<- prometheus.Metric, s *socke
 		append([]string{jail, c.hostname}, customerLabels...)...,
 	)
 	ch <- prometheus.MustNewConstMetric(
-		metricJailBannedTotal, prometheus.GaugeValue, float64(stats.BannedTotal),
+		metricJailBannedTotal, prometheus.CounterValue, float64(stats.BannedTotal),
 		append([]string{jail, c.hostname}, customerLabels...)...,
 	)
 }

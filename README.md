@@ -6,9 +6,11 @@ Collect metrics from a running fail2ban instance with optional geo-tagging suppo
 1. Quick Start
 2. Metrics
 3. Configuration
-4. Building from source
-5. Textfile metrics
-6. Troubleshooting
+4. Securing the metrics endpoint
+5. Building from source
+6. Textfile metrics
+7. Roadmap
+8. Troubleshooting
 
 ## 1. Quick Start
 
@@ -71,10 +73,10 @@ The exporter exposes the following metrics:
 | Metric                       | Description                                                                        | Example                                             |
 |------------------------------|------------------------------------------------------------------------------------|-----------------------------------------------------|
 | `up`                         | Returns 1 if the exporter is up and running                                        | `f2b_up{system="hostname"} 1`                      |
-| `errors`                     | Count the number of errors since startup by type                                   |                                                     |
-| `errors{type="socket_conn"}` | Errors connecting to the fail2ban socket (e.g. connection refused)                 | `f2b_errors{type="socket_conn",system="hostname"} 0` |
-| `errors{type="socket_req"}`  | Errors sending requests to the fail2ban server (e.g. invalid responses)            | `f2b_errors{type="socket_req",system="hostname"} 0` |
-| `jail_count`                 | Number of jails configured in fail2ban                                             | `f2b_jail_count{system="hostname"} 2`               |
+| `errors_total`               | Count the number of errors since startup by type                                   |                                                     |
+| `errors_total{type="socket_conn"}` | Errors connecting to the fail2ban socket (e.g. connection refused)           | `f2b_errors_total{type="socket_conn",system="hostname"} 0` |
+| `errors_total{type="socket_req"}`  | Errors sending requests to the fail2ban server (e.g. invalid responses)      | `f2b_errors_total{type="socket_req",system="hostname"} 0` |
+| `jail_count`                 | Number of jails exported (see [2.4](#24-filtering-jails))                          | `f2b_jail_count{system="hostname"} 2`               |
 | `jail_banned_current`        | Number of IPs currently banned per jail                                            | `f2b_jail_banned_current{jail="sshd",system="hostname"} 15` |
 | `jail_banned_total`          | Total number of banned IPs since fail2ban startup per jail (includes expired bans) | `f2b_jail_banned_total{jail="sshd",system="hostname"} 31` |
 | `jail_failed_current`        | Number of current failures per jail                                                | `f2b_jail_failed_current{jail="sshd",system="hostname"} 6` |
@@ -97,6 +99,8 @@ Status for the jail: sshd
    |- Total banned:     31
    `- Banned IP list:   ...
 ```
+
+*Renamed in 1.2.0-beta:* `f2b_errors` is now `f2b_errors_total`, matching the Prometheus convention for counters. `f2b_jail_banned_total` and `f2b_jail_failed_total` kept their names but are now exposed as counters rather than gauges, and `f2b_attacks_by_hour` / `f2b_attacks_by_day_of_week` as gauges rather than counters — their values fall as bans age out of the rolling window, so they were never valid counters.
 
 ### 2.1. Grafana
 
@@ -138,6 +142,39 @@ Per-IP metric families (`banned_ip`, the time-based family, and the historical f
 
 Database-backed metrics are **opt-in**: the exporter only opens the fail2ban database when `--collector.f2b.database` is set explicitly (the standard fail2ban path is `/var/lib/fail2ban/fail2ban.sqlite3`). If the database cannot be opened, the exporter logs a warning and continues with socket-based metrics only.
 
+### 2.4. Filtering jails
+
+Two regular expressions decide which jails are exported at all:
+
+- `--collector.f2b.jail-include` — only jails whose name matches are exported (empty means all jails)
+- `--collector.f2b.jail-exclude` — jails whose name matches are never exported; applied after the include rule, so exclude always wins
+
+Both patterns are unanchored, so `auth` matches `apache-auth`; use `^...$` to match a whole jail name.
+
+Filtering applies everywhere a jail appears: per-jail stats and config, per-IP metrics, geographic aggregates, attack patterns and alerts. It also applies to `f2b_jail_count`, which reports the number of jails this exporter exports rather than the number fail2ban has configured.
+
+```bash
+# Everything except the noisy recidive jail
+fail2ban_exporter --collector.f2b.jail-exclude='^recidive$'
+```
+
+### 2.5. Anonymizing banned IP addresses
+
+Some deployments cannot export attacker IP addresses into a metrics store. `--collector.f2b.ip-anonymize` transforms the `ip` label on `f2b_banned_ip` and on the time-based and historical per-IP families:
+
+| Mode | `ip` label | Notes |
+|------|-----------|-------|
+| `none` (default) | `203.0.113.42` | The address as fail2ban reports it |
+| `mask` | `203.0.113.0/24` | Truncated to `--collector.f2b.ip-mask-bits-v4` / `-v6` (defaults 24 and 64) |
+| `hash` | `4f9d2c1a8b3e7605` | First 16 hex characters of a salted SHA-256 digest |
+
+Two things are worth knowing before turning this on:
+
+- **`mask` merges series.** Several addresses in one block become a single series per jail. `f2b_banned_ip` stays a presence indicator (value `1`) for the block, and the time-based metrics describe the most recent ban in it. `f2b_ip_ban_count_total` sums over the block.
+- **`hash` needs a stable salt.** Without `--collector.f2b.ip-hash-salt` a random salt is generated per process, so every restart produces new label values and breaks series continuity. Set it explicitly for anything long-lived.
+
+Geo lookups always use the real address, so country and city labels and the geographic aggregates are unaffected by either mode. Attack-pattern detection also uses real addresses, so brute-force detection is not weakened by masking.
+
 ## 3. Configuration
 
 The exporter is configured with CLI flags and environment variables.
@@ -145,62 +182,86 @@ There are no configuration files.
 
 **CLI flags**
 ```
-🚀 Collect prometheus metrics from a running Fail2Ban instance
+Usage: fail2ban_exporter [flags]
+
+🚀 Export prometheus metrics from a running Fail2Ban instance
 
 Flags:
-  -h, --help                          Show context-sensitive help.
-  -v, --version                       Show version info and exit
-      --dry-run                       Attempt to connect to the fail2ban socket then exit
-                                      before starting the server
-      --web.listen-address=":9191"    Address to use for the metrics server
-                                      ($F2B_WEB_LISTEN_ADDRESS)
+  -h, --help                           Show context-sensitive help.
+  -v, --version                        Show version info and exit
+      --dry-run                        Attempt to connect to the fail2ban socket then exit before
+                                       starting the server
+      --web.listen-address=":9191"     Address to use for the metrics server
+                                       ($F2B_WEB_LISTEN_ADDRESS)
+      --web.config-file=STRING         Path to a prometheus/exporter-toolkit web config file,
+                                       enabling TLS, mTLS and multi-user basic auth
+                                       ($F2B_WEB_CONFIG_FILE)
       --collector.f2b.socket="/var/run/fail2ban/fail2ban.sock"
-                                      Path to the fail2ban server socket
-                                      ($F2B_COLLECTOR_SOCKET)
-      --collector.f2b.database=STRING
-                                      Path to the fail2ban SQLite database (e.g.
-                                      /var/lib/fail2ban/fail2ban.sqlite3). Empty disables
-                                      database-backed metrics ($F2B_COLLECTOR_DATABASE)
+                                       Path to the fail2ban server socket ($F2B_COLLECTOR_SOCKET)
+      --collector.f2b.database=""      Path to the fail2ban SQLite database (e.g.
+                                       /var/lib/fail2ban/fail2ban.sqlite3). Empty disables
+                                       database-backed metrics ($F2B_COLLECTOR_DATABASE)
+      --collector.f2b.timeout=5s       Timeout for connecting to the fail2ban socket and
+                                       for each command sent over it (0 = no timeout)
+                                       ($F2B_COLLECTOR_TIMEOUT)
       --collector.f2b.max-ip-metrics=500
-                                      Maximum number of per-IP series to export per metric
-                                      family, most recent first (0 = unlimited)
-                                      ($F2B_COLLECTOR_MAX_IP_METRICS)
+                                       Maximum number of per-IP series to export per
+                                       metric family, most recent first (0 = unlimited)
+                                       ($F2B_COLLECTOR_MAX_IP_METRICS)
       --collector.f2b.database-cache-ttl=60
-                                      Seconds to cache fail2ban database query results
-                                      between scrapes (0 = query on every scrape)
-                                      ($F2B_COLLECTOR_DATABASE_CACHE_TTL)
+                                       Seconds to cache fail2ban database query results
+                                       between scrapes (0 = query on every scrape)
+                                       ($F2B_COLLECTOR_DATABASE_CACHE_TTL)
+      --collector.f2b.jail-include=STRING
+                                       Only export jails whose name matches this regular expression
+                                       (empty = all jails) ($F2B_COLLECTOR_JAIL_INCLUDE)
+      --collector.f2b.jail-exclude=STRING
+                                       Never export jails whose name matches this regular
+                                       expression, applied after --collector.f2b.jail-include
+                                       ($F2B_COLLECTOR_JAIL_EXCLUDE)
+      --collector.f2b.ip-anonymize="none"
+                                       How to render banned IPs in the 'ip' label: none,
+                                       mask (network prefix) or hash (salted digest)
+                                       ($F2B_COLLECTOR_IP_ANONYMIZE)
+      --collector.f2b.ip-mask-bits-v4=24
+                                       Prefix length kept for IPv4 addresses
+                                       when --collector.f2b.ip-anonymize=mask
+                                       ($F2B_COLLECTOR_IP_MASK_BITS_V4)
+      --collector.f2b.ip-mask-bits-v6=64
+                                       Prefix length kept for IPv6 addresses
+                                       when --collector.f2b.ip-anonymize=mask
+                                       ($F2B_COLLECTOR_IP_MASK_BITS_V6)
+      --collector.f2b.ip-hash-salt=STRING
+                                       Salt for --collector.f2b.ip-anonymize=hash; a random salt is
+                                       generated per process if empty ($F2B_COLLECTOR_IP_HASH_SALT)
       --collector.f2b.exit-on-socket-connection-error
-                                      When set to true the exporter will immediately
-                                      exit on a fail2ban socket connection error
-                                      ($F2B_EXIT_ON_SOCKET_CONN_ERROR)
-      --geo.enabled                   Enable geo-tagging of banned IPs
-                                      ($F2B_GEO_ENABLED)
-      --geo.db-path=STRING            Path to MaxMind GeoLite2-City.mmdb database file
-                                      ($F2B_GEO_DB_PATH)
-      --geo.provider="maxmind"        Geo provider to use (default: maxmind)
-                                      ($F2B_GEO_PROVIDER)
-      --customer.id=STRING            Customer identifier for multi-tenant support
-                                      ($F2B_CUSTOMER_ID)
-      --customer.name=STRING          Customer name for multi-tenant support
-                                      ($F2B_CUSTOMER_NAME)
-      --tenant.id=STRING              Tenant identifier for multi-tenant support
-                                      ($F2B_TENANT_ID)
-      --alert.ban-rate-threshold=10   Ban rate threshold (bans per minute) for high ban
-                                      rate alert ($F2B_ALERT_BAN_RATE_THRESHOLD)
-      --alert.coordinated-min-ips=5   Minimum number of IPs for coordinated attack alert
-                                      ($F2B_ALERT_COORDINATED_MIN_IPS)
-      --alert.jail-inactivity-hours=24
-                                      Hours of inactivity before jail inactivity alert
-                                      ($F2B_ALERT_JAIL_INACTIVITY_HOURS)
+                                       When set to true the exporter will immediately
+                                       exit on a fail2ban socket connection error
+                                       ($F2B_EXIT_ON_SOCKET_CONN_ERROR)
       --collector.textfile.directory=STRING
-                                      Directory to read text files with metrics from
-                                      ($F2B_COLLECTOR_TEXT_PATH)
+                                       Directory to read text files with metrics from
+                                       ($F2B_COLLECTOR_TEXT_PATH)
       --web.basic-auth.username=STRING
-                                      Username to use to protect endpoints with basic auth
-                                      ($F2B_WEB_BASICAUTH_USER)
+                                       DEPRECATED, use --web.config-file. Username to use to protect
+                                       endpoints with basic auth ($F2B_WEB_BASICAUTH_USER)
       --web.basic-auth.password=STRING
-                                      Password to use to protect endpoints with basic auth
-                                      ($F2B_WEB_BASICAUTH_PASS)
+                                       DEPRECATED, use --web.config-file. Password to use to protect
+                                       endpoints with basic auth ($F2B_WEB_BASICAUTH_PASS)
+      --geo.enabled                    Enable geo-tagging of banned IPs ($F2B_GEO_ENABLED)
+      --geo.db-path=STRING             Path to MaxMind GeoLite2-City.mmdb database file
+                                       ($F2B_GEO_DB_PATH)
+      --geo.provider="maxmind"         Geo provider to use (default: maxmind) ($F2B_GEO_PROVIDER)
+      --customer.id=STRING             Customer identifier for multi-tenant support
+                                       ($F2B_CUSTOMER_ID)
+      --customer.name=STRING           Customer name for multi-tenant support ($F2B_CUSTOMER_NAME)
+      --tenant.id=STRING               Tenant identifier for multi-tenant support ($F2B_TENANT_ID)
+      --alert.ban-rate-threshold=10    Ban rate threshold (bans per minute) for high ban rate alert
+                                       ($F2B_ALERT_BAN_RATE_THRESHOLD)
+      --alert.coordinated-min-ips=5    Minimum number of IPs for coordinated attack alert
+                                       ($F2B_ALERT_COORDINATED_MIN_IPS)
+      --alert.jail-inactivity-hours=24
+                                       Hours of inactivity before jail inactivity alert
+                                       ($F2B_ALERT_JAIL_INACTIVITY_HOURS)
 ```
 
 **Environment variables**
@@ -212,10 +273,18 @@ If both are specified, the CLI flag takes precedence.
 |---------------------------------|---------------------------------------------------|
 | `F2B_COLLECTOR_SOCKET`          | `--collector.f2b.socket`                          |
 | `F2B_COLLECTOR_DATABASE`        | `--collector.f2b.database`                        |
+| `F2B_COLLECTOR_TIMEOUT`         | `--collector.f2b.timeout`                         |
+| `F2B_COLLECTOR_JAIL_INCLUDE`    | `--collector.f2b.jail-include`                    |
+| `F2B_COLLECTOR_JAIL_EXCLUDE`    | `--collector.f2b.jail-exclude`                    |
+| `F2B_COLLECTOR_IP_ANONYMIZE`    | `--collector.f2b.ip-anonymize`                    |
+| `F2B_COLLECTOR_IP_MASK_BITS_V4` | `--collector.f2b.ip-mask-bits-v4`                 |
+| `F2B_COLLECTOR_IP_MASK_BITS_V6` | `--collector.f2b.ip-mask-bits-v6`                 |
+| `F2B_COLLECTOR_IP_HASH_SALT`    | `--collector.f2b.ip-hash-salt`                    |
 | `F2B_COLLECTOR_MAX_IP_METRICS`  | `--collector.f2b.max-ip-metrics`                  |
 | `F2B_COLLECTOR_DATABASE_CACHE_TTL` | `--collector.f2b.database-cache-ttl`           |
 | `F2B_COLLECTOR_TEXT_PATH`       | `--collector.textfile.directory`                  |
 | `F2B_WEB_LISTEN_ADDRESS`        | `--web.listen-address`                            |
+| `F2B_WEB_CONFIG_FILE`           | `--web.config-file`                               |
 | `F2B_WEB_BASICAUTH_USER`        | `--web.basic-auth.username`                       |
 | `F2B_WEB_BASICAUTH_PASS`        | `--web.basic-auth.password`                       |
 | `F2B_EXIT_ON_SOCKET_CONN_ERROR` | `--collector.f2b.exit-on-socket-connection-error` |
@@ -229,7 +298,40 @@ If both are specified, the CLI flag takes precedence.
 | `F2B_ALERT_COORDINATED_MIN_IPS` | `--alert.coordinated-min-ips`                     |
 | `F2B_ALERT_JAIL_INACTIVITY_HOURS` | `--alert.jail-inactivity-hours`                 |
 
-## 4. Building from source
+## 4. Securing the metrics endpoint
+
+Point `--web.config-file` at a [prometheus/exporter-toolkit](https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md) web configuration file to enable TLS, mutual TLS and basic auth with bcrypt-hashed passwords:
+
+```yaml
+# web-config.yml
+tls_server_config:
+  cert_file: /etc/fail2ban-exporter/cert.pem
+  key_file: /etc/fail2ban-exporter/key.pem
+  # Optional: require client certificates (mTLS)
+  # client_auth_type: RequireAndVerifyClientCert
+  # client_ca_file: /etc/fail2ban-exporter/ca.pem
+
+basic_auth_users:
+  # htpasswd -nBC 12 "" | tr -d ':\n'
+  prometheus: $2a$12$hNv... 
+```
+
+```bash
+fail2ban_exporter --web.config-file=/etc/fail2ban-exporter/web-config.yml
+```
+
+The file is re-read on every request, so credentials and certificates can be rotated without restarting the exporter.
+
+**Deprecated:** `--web.basic-auth.username` and `--web.basic-auth.password` still work, but they transmit credentials over plaintext HTTP and only support a single user with a plaintext password. They cannot be combined with `--web.config-file`; the exporter exits with an error if both are given.
+
+### 4.1. Scrape timeouts
+
+A wedged fail2ban server used to hang a scrape indefinitely, and because a collection holds a lock for its whole duration, every following scrape queued behind it. Two timeouts now bound this:
+
+- `--collector.f2b.timeout` (default `5s`) bounds connecting to the fail2ban socket and each individual command sent over it. Set it to `0` to restore the old unbounded behaviour.
+- The `X-Prometheus-Scrape-Timeout-Seconds` header that Prometheus sends on every scrape bounds the whole gather. If it is exceeded the exporter returns `503` instead of holding the connection open.
+
+## 5. Building from source
 
 Building from source has the following dependencies:
 - Go v1.20
@@ -239,7 +341,7 @@ From there, simply run `make build`
 
 This will download the necessary dependencies and build a `fail2ban_exporter` binary in the root of the project.
 
-### 4.2. Geo-Tagging Setup
+### 5.2. Geo-Tagging Setup
 
 To enable geo-tagging of banned IPs:
 
@@ -263,26 +365,27 @@ When geo-tagging is enabled, the `f2b_banned_ip` metric will include additional 
 - `country` - Country name
 - `country_code` - ISO country code
 
-### 4.3. System Name Label
+### 5.3. System Name Label
 
 All metrics now include a `system` label with the hostname of the machine running the exporter. This allows you to distinguish metrics from multiple exporters in a Prometheus setup.
 
-## 5. Textfile metrics
+## 6. Textfile metrics
 
 For more flexibility the exporter also allows exporting metrics collected from a text file.
 
 To enable textfile metrics provide the directory to read files from with the `--collector.textfile.directory` flag.
 
-Metrics collected from these files will be exposed directly alongside the other metrics without any additional processing.
-This means that it is the responsibility of the file creator to ensure the format is correct.
+Each `.prom` file is parsed as Prometheus text exposition format and its samples are exported alongside the exporter's own metrics. Counters, gauges, untyped metrics, summaries, histograms and explicit timestamps are all supported.
 
-By exporting textfile metrics an extra metric is also exported with an error count for each file:
+A file that cannot be read or parsed is skipped rather than breaking the scrape, and a file that redefines a metric family another file already defined is skipped too — the first file to define a name wins. Either case is reported through `textfile_error`:
 
 ```
 # HELP textfile_error Checks for errors while reading text files
 # TYPE textfile_error gauge
 textfile_error{path="file.prom"} 0
 ```
+
+*Prior to 1.2.0-beta these files were appended to the HTTP response after the response body had already been written and compressed, which corrupted the payload for any scraper sending `Accept-Encoding: gzip` — which Prometheus always does.*
 
 **NOTE:** Any file not ending with `.prom` will be ignored.
 
@@ -303,9 +406,16 @@ docker run -d \
     ghcr.io/NightSquawk/fail2ban-prometheus-exporter:latest
 ```
 
-## 6. Troubleshooting
+## 7. Roadmap
 
-### 6.1. "no such file or directory"
+Planned work is tracked in [ROADMAP.md](ROADMAP.md): geo improvements (ASN
+labels, lookup caching, database reload), structured logging, multiple fail2ban
+targets per exporter, fail2ban configuration metrics, a purge-proof ban counter,
+packaging and supply-chain hardening, and example Prometheus alerting rules.
+
+## 8. Troubleshooting
+
+### 8.1. "no such file or directory"
 
 ```
 error opening socket: dial unix /var/run/fail2ban/fail2ban.sock: connect: no such file or directory

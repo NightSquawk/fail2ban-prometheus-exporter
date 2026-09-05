@@ -31,6 +31,9 @@ type Collector struct {
 	geoEnabled                 bool
 	db                         *database.Database
 	maxIPMetrics               int
+	socketTimeout              time.Duration
+	jails                      jailFilter
+	ipAnon                     *ipAnonymizer
 	// nowFn is a clock seam for tests; defaults to time.Now in NewExporter.
 	nowFn func() time.Time
 	// mu guards every mutable field below it; held for the whole of Collect() and IsHealthy(),
@@ -52,7 +55,7 @@ type Collector struct {
 
 func NewExporter(appSettings *cfg.AppSettings, exporterVersion string) *Collector {
 	log.Printf("reading fail2ban metrics from socket file: %s", appSettings.Fail2BanSocketPath)
-	printFail2BanServerVersion(appSettings.Fail2BanSocketPath)
+	printFail2BanServerVersion(appSettings.Fail2BanSocketPath, appSettings.Fail2BanTimeout)
 
 	// Get hostname
 	hostname, err := os.Hostname()
@@ -75,6 +78,9 @@ func NewExporter(appSettings *cfg.AppSettings, exporterVersion string) *Collecto
 		exitOnSocketConnError:      appSettings.ExitOnSocketConnError,
 		geoEnabled:                 appSettings.Geo.Enabled,
 		maxIPMetrics:               appSettings.MaxIPMetrics,
+		socketTimeout:              appSettings.Fail2BanTimeout,
+		jails:                      newJailFilter(appSettings.Filter),
+		ipAnon:                     newIPAnonymizer(appSettings.Privacy),
 		dbCacheTTL:                 time.Duration(appSettings.DatabaseCacheTTL) * time.Second,
 		seenCountries:              make(map[string]bool),
 		lastJailActivity:           make(map[string]int64),
@@ -127,6 +133,7 @@ func (c *Collector) getActiveBans() ([]database.BannedIP, error) {
 	if err != nil {
 		return nil, err
 	}
+	bans = c.jails.filterBans(bans)
 	c.cachedActiveBans = bans
 	c.activeBansAt = c.nowFn()
 	return bans, nil
@@ -143,6 +150,7 @@ func (c *Collector) getAllBans() ([]database.BannedIP, error) {
 	if err != nil {
 		return nil, err
 	}
+	bans = c.jails.filterBans(bans)
 	c.cachedAllBans = bans
 	c.allBansAt = c.nowFn()
 	return bans, nil
@@ -196,7 +204,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	var dbQueryDuration time.Duration
 	var geoLookupDuration time.Duration
 
-	s, err := socket.ConnectToSocket(c.socketPath)
+	s, err := socket.ConnectToSocketTimeout(c.socketPath, c.socketTimeout)
 	if err != nil {
 		log.Printf("error opening socket: %v", err)
 		c.socketConnectionErrorCount++
@@ -300,7 +308,7 @@ func (c *Collector) IsHealthy() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	s, err := socket.ConnectToSocket(c.socketPath)
+	s, err := socket.ConnectToSocketTimeout(c.socketPath, c.socketTimeout)
 	if err != nil {
 		log.Printf("error opening socket: %v", err)
 		c.socketConnectionErrorCount++
@@ -317,7 +325,7 @@ func (c *Collector) IsHealthy() bool {
 
 func (c *Collector) collectBannedIPMetrics(ch chan<- prometheus.Metric) {
 	// Get banned IPs from socket
-	s, err := socket.ConnectToSocket(c.socketPath)
+	s, err := socket.ConnectToSocketTimeout(c.socketPath, c.socketTimeout)
 	if err != nil {
 		log.Printf("failed to connect to socket for banned IP collection: %v", err)
 		return
@@ -330,8 +338,10 @@ func (c *Collector) collectBannedIPMetrics(ch chan<- prometheus.Metric) {
 		log.Printf("failed to get jails for banned IP collection: %v", err)
 		return
 	}
+	jails = c.jails.filterJails(jails)
 
-	// Get banned IPs for each jail
+	// Get banned IPs for each jail. The dedup key uses the anonymized label, so
+	// several addresses collapsing into one masked block emit a single series.
 	seenIPs := make(map[string]bool)
 	exported := 0
 	for _, jail := range jails {
@@ -343,7 +353,8 @@ func (c *Collector) collectBannedIPMetrics(ch chan<- prometheus.Metric) {
 
 		for _, ip := range bannedIPs {
 			// Create unique key for this jail+IP combination
-			key := jail + ":" + ip
+			ipLabel := c.ipAnon.label(ip)
+			key := jail + ":" + ipLabel
 			if seenIPs[key] {
 				continue
 			}
@@ -353,15 +364,18 @@ func (c *Collector) collectBannedIPMetrics(ch chan<- prometheus.Metric) {
 				log.Printf("banned IP metrics truncated at %d series (see --collector.f2b.max-ip-metrics)", c.maxIPMetrics)
 				return
 			}
-			c.createBannedIPMetric(ch, jail, ip)
+			c.createBannedIPMetric(ch, jail, ip, ipLabel)
 			exported++
 		}
 	}
 }
 
-func (c *Collector) createBannedIPMetric(ch chan<- prometheus.Metric, jail, ip string) {
+// createBannedIPMetric emits one series for a banned address. ip is the real
+// address, used for the geo lookup; ipLabel is what actually reaches the `ip`
+// label and may be masked or hashed.
+func (c *Collector) createBannedIPMetric(ch chan<- prometheus.Metric, jail, ip, ipLabel string) {
 	// Base labels: jail, ip, system
-	labels := []string{jail, ip, c.hostname}
+	labels := []string{jail, ipLabel, c.hostname}
 
 	// Add geo labels if geo provider is available
 	// Always include all geo label positions, using empty strings if not available
@@ -410,6 +424,10 @@ func (c *Collector) collectTimeBasedMetrics(ch chan<- prometheus.Metric) {
 		log.Printf("failed to get banned IPs from database for time-based metrics: %v", err)
 		return
 	}
+
+	// Collapse first: in mask mode several addresses share one label, and the
+	// cap should count exported series rather than pre-collapse rows.
+	bannedIPs = c.ipAnon.collapseBans(bannedIPs)
 
 	// Cap per-IP series at the most recent bans
 	if c.maxIPMetrics > 0 && len(bannedIPs) > c.maxIPMetrics {
@@ -491,7 +509,8 @@ func (c *Collector) collectHistoricalBanMetrics(ch chan<- prometheus.Metric) {
 	ipStats := make(map[string]ipStat)
 
 	for _, ban := range allBans {
-		stats := ipStats[ban.IP]
+		ipLabel := c.ipAnon.label(ban.IP)
+		stats := ipStats[ipLabel]
 		stats.banCount++
 		if ban.TimeOfBan > 0 {
 			if stats.firstSeen == 0 || ban.TimeOfBan < stats.firstSeen {
@@ -501,7 +520,7 @@ func (c *Collector) collectHistoricalBanMetrics(ch chan<- prometheus.Metric) {
 				stats.lastSeen = ban.TimeOfBan
 			}
 		}
-		ipStats[ban.IP] = stats
+		ipStats[ipLabel] = stats
 	}
 
 	// Cap per-IP series at the most recently seen IPs
@@ -563,7 +582,7 @@ func (c *Collector) collectGeographicMetrics(ch chan<- prometheus.Metric) {
 	customerLabels := getCustomerLabels(c.customerID, c.customerName, c.tenantID)
 
 	// Get banned IPs from socket to analyze
-	s, err := socket.ConnectToSocket(c.socketPath)
+	s, err := socket.ConnectToSocketTimeout(c.socketPath, c.socketTimeout)
 	if err != nil {
 		log.Printf("failed to connect to socket for geographic metrics: %v", err)
 		return
@@ -575,6 +594,7 @@ func (c *Collector) collectGeographicMetrics(ch chan<- prometheus.Metric) {
 		log.Printf("failed to get jails for geographic metrics: %v", err)
 		return
 	}
+	jails = c.jails.filterJails(jails)
 
 	// Aggregate attacks by country and city
 	countryCounts := make(map[string]struct {
@@ -792,12 +812,14 @@ func (c *Collector) collectAttackPatternMetrics(ch chan<- prometheus.Metric) {
 		)
 	}
 
-	// Export attacks by hour
+	// Export attacks by hour. These are gauges, not counters: the buckets are
+	// recomputed each scrape from a rolling 48h window, so they fall as old bans
+	// age out.
 	for hour, count := range hourCounts {
 		hourStr := fmt.Sprintf("%d", hour)
 		labels := append([]string{hourStr, c.hostname}, customerLabels...)
 		ch <- prometheus.MustNewConstMetric(
-			metricAttacksByHour, prometheus.CounterValue, float64(count), labels...,
+			metricAttacksByHour, prometheus.GaugeValue, float64(count), labels...,
 		)
 	}
 
@@ -806,7 +828,7 @@ func (c *Collector) collectAttackPatternMetrics(ch chan<- prometheus.Metric) {
 		dayStr := fmt.Sprintf("%d", day)
 		labels := append([]string{dayStr, c.hostname}, customerLabels...)
 		ch <- prometheus.MustNewConstMetric(
-			metricAttacksByDayOfWeek, prometheus.CounterValue, float64(count), labels...,
+			metricAttacksByDayOfWeek, prometheus.GaugeValue, float64(count), labels...,
 		)
 	}
 
@@ -827,7 +849,7 @@ func (c *Collector) collectAlertMetrics(ch chan<- prometheus.Metric) {
 	currentTime := c.nowFn().Unix()
 
 	// Get current jail stats
-	s, err := socket.ConnectToSocket(c.socketPath)
+	s, err := socket.ConnectToSocketTimeout(c.socketPath, c.socketTimeout)
 	if err != nil {
 		log.Printf("failed to connect to socket for alert metrics: %v", err)
 		return
@@ -839,6 +861,7 @@ func (c *Collector) collectAlertMetrics(ch chan<- prometheus.Metric) {
 		log.Printf("failed to get jails for alert metrics: %v", err)
 		return
 	}
+	jails = c.jails.filterJails(jails)
 
 	// Calculate ban rate (bans per minute)
 	var totalBans int
@@ -961,7 +984,7 @@ func (c *Collector) collectAlertMetrics(ch chan<- prometheus.Metric) {
 		if err == nil {
 			ipCounts := make(map[string]int)
 			for _, ban := range allBans {
-				ipCounts[ban.IP]++
+				ipCounts[c.ipAnon.label(ban.IP)]++
 			}
 
 			repeatOffenderCount := 0
@@ -992,8 +1015,8 @@ func (c *Collector) collectAlertMetrics(ch chan<- prometheus.Metric) {
 	c.lastCollectionTime = currentTime
 }
 
-func printFail2BanServerVersion(socketPath string) {
-	s, err := socket.ConnectToSocket(socketPath)
+func printFail2BanServerVersion(socketPath string, timeout time.Duration) {
+	s, err := socket.ConnectToSocketTimeout(socketPath, timeout)
 	if err != nil {
 		log.Printf("error connecting to socket: %v", err)
 	} else {

@@ -26,11 +26,11 @@ f2b_attacks_by_city_total{city="New York",country="United States",country_code="
 f2b_attacks_by_country_total{country="Russia",country_code="RU",customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 1
 f2b_attacks_by_country_total{country="United States",country_code="US",customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 2
 # HELP f2b_attacks_by_day_of_week Attack distribution by day of week (0-6, Sunday=0)
-# TYPE f2b_attacks_by_day_of_week counter
+# TYPE f2b_attacks_by_day_of_week gauge
 f2b_attacks_by_day_of_week{customer_id="cust-1",customer_name="Acme Corp",day="2",system="test-host",tenant_id="tenant-42"} 1
 f2b_attacks_by_day_of_week{customer_id="cust-1",customer_name="Acme Corp",day="3",system="test-host",tenant_id="tenant-42"} 9
 # HELP f2b_attacks_by_hour Attack distribution by hour of day (0-23)
-# TYPE f2b_attacks_by_hour counter
+# TYPE f2b_attacks_by_hour gauge
 f2b_attacks_by_hour{customer_id="cust-1",customer_name="Acme Corp",hour="1",system="test-host",tenant_id="tenant-42"} 1
 f2b_attacks_by_hour{customer_id="cust-1",customer_name="Acme Corp",hour="2",system="test-host",tenant_id="tenant-42"} 1
 f2b_attacks_by_hour{customer_id="cust-1",customer_name="Acme Corp",hour="22",system="test-host",tenant_id="tenant-42"} 1
@@ -78,10 +78,10 @@ f2b_config_jail_max_retries{customer_id="cust-1",customer_name="Acme Corp",jail=
 # HELP f2b_database_query_duration_seconds Database query performance in seconds
 # TYPE f2b_database_query_duration_seconds gauge
 f2b_database_query_duration_seconds{customer_id="cust-1",customer_name="Acme Corp",query_type="banned_ips",system="test-host",tenant_id="tenant-42"} -1
-# HELP f2b_errors Number of errors found since startup
-# TYPE f2b_errors counter
-f2b_errors{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42",type="socket_conn"} 0
-f2b_errors{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42",type="socket_req"} 0
+# HELP f2b_errors_total Number of errors found since startup
+# TYPE f2b_errors_total counter
+f2b_errors_total{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42",type="socket_conn"} 0
+f2b_errors_total{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42",type="socket_req"} 0
 # HELP f2b_geo_lookup_duration_seconds Geo lookup performance in seconds
 # TYPE f2b_geo_lookup_duration_seconds gauge
 f2b_geo_lookup_duration_seconds{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} -1
@@ -126,7 +126,7 @@ f2b_jail_banned_current{customer_id="cust-1",customer_name="Acme Corp",jail="apa
 f2b_jail_banned_current{customer_id="cust-1",customer_name="Acme Corp",jail="recidive",system="test-host",tenant_id="tenant-42"} 0
 f2b_jail_banned_current{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 3
 # HELP f2b_jail_banned_total Total number of IPs banned by this jail (includes expired bans)
-# TYPE f2b_jail_banned_total gauge
+# TYPE f2b_jail_banned_total counter
 f2b_jail_banned_total{customer_id="cust-1",customer_name="Acme Corp",jail="apache-auth",system="test-host",tenant_id="tenant-42"} 2
 f2b_jail_banned_total{customer_id="cust-1",customer_name="Acme Corp",jail="recidive",system="test-host",tenant_id="tenant-42"} 0
 f2b_jail_banned_total{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 10
@@ -139,7 +139,7 @@ f2b_jail_failed_current{customer_id="cust-1",customer_name="Acme Corp",jail="apa
 f2b_jail_failed_current{customer_id="cust-1",customer_name="Acme Corp",jail="recidive",system="test-host",tenant_id="tenant-42"} 0
 f2b_jail_failed_current{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 3
 # HELP f2b_jail_failed_total Number of total failures on this jail's filter
-# TYPE f2b_jail_failed_total gauge
+# TYPE f2b_jail_failed_total counter
 f2b_jail_failed_total{customer_id="cust-1",customer_name="Acme Corp",jail="apache-auth",system="test-host",tenant_id="tenant-42"} 5
 f2b_jail_failed_total{customer_id="cust-1",customer_name="Acme Corp",jail="recidive",system="test-host",tenant_id="tenant-42"} 0
 f2b_jail_failed_total{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 42

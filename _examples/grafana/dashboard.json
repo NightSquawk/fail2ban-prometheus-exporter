@@ -1408,7 +1408,7 @@
                       "kind": "DataQuery",
                       "spec": {
                         "exemplar": true,
-                        "expr": "f2b_errors",
+                        "expr": "f2b_errors_total",
                         "interval": "",
                         "legendFormat": "{{type}}"
                       },

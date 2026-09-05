@@ -44,7 +44,7 @@ func main() {
 	prometheus.MustRegister(textFileCollector)
 
 	if !appSettings.DryRunMode {
-		svrErr := server.StartServer(appSettings, f2bCollector, textFileCollector)
+		svrErr := server.StartServer(appSettings, f2bCollector)
 		err := <-svrErr
 		log.Fatal(err)
 	} else {
