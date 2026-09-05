@@ -18,6 +18,8 @@ type AttackPattern struct {
 // PatternDetector analyzes bans to detect attack patterns
 type PatternDetector struct {
 	recentBans []BanRecord
+	// now is a clock seam for tests; defaults to time.Now.
+	now func() time.Time
 }
 
 // BanRecord represents a ban with timing information
@@ -30,8 +32,16 @@ type BanRecord struct {
 
 // NewPatternDetector creates a new pattern detector
 func NewPatternDetector() *PatternDetector {
+	return newPatternDetectorWithClock(time.Now)
+}
+
+// newPatternDetectorWithClock creates a pattern detector with an injectable
+// clock, so the 48h retention window and velocity cutoffs are deterministic
+// in tests.
+func newPatternDetectorWithClock(now func() time.Time) *PatternDetector {
 	return &PatternDetector{
 		recentBans: make([]BanRecord, 0),
+		now:        now,
 	}
 }
 
@@ -45,7 +55,7 @@ func (pd *PatternDetector) AddBan(ip, jail string, timeOfBan int64, country stri
 	})
 
 	// Keep only last 48 hours of bans
-	cutoffTime := time.Now().Unix() - (48 * 3600)
+	cutoffTime := pd.now().Unix() - (48 * 3600)
 	filtered := make([]BanRecord, 0)
 	for _, ban := range pd.recentBans {
 		if ban.TimeOfBan >= cutoffTime {
@@ -163,7 +173,7 @@ func (pd *PatternDetector) DetectTemporalPattern() (map[int]int, map[int]int) {
 
 // CalculateAttackVelocity calculates attacks per hour for recent time window
 func (pd *PatternDetector) CalculateAttackVelocity(hours int) float64 {
-	cutoffTime := time.Now().Unix() - int64(hours*3600)
+	cutoffTime := pd.now().Unix() - int64(hours*3600)
 	count := 0
 
 	for _, ban := range pd.recentBans {

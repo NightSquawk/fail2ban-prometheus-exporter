@@ -1,0 +1,172 @@
+# HELP f2b_alert_coordinated_attack 1 if multiple IPs from same country attacking same jail, 0 otherwise
+# TYPE f2b_alert_coordinated_attack gauge
+f2b_alert_coordinated_attack{country_code="US",customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 1
+# HELP f2b_alert_new_country_attack 1 if attack from new country detected, 0 otherwise
+# TYPE f2b_alert_new_country_attack gauge
+f2b_alert_new_country_attack{country_code="RU",customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 1
+f2b_alert_new_country_attack{country_code="US",customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 1
+# HELP f2b_alert_repeat_offender_spike 1 if repeat offenders increase significantly, 0 otherwise
+# TYPE f2b_alert_repeat_offender_spike gauge
+f2b_alert_repeat_offender_spike{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 0
+# HELP f2b_attack_pattern_type Number of attack patterns of this type detected per jail
+# TYPE f2b_attack_pattern_type gauge
+f2b_attack_pattern_type{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",pattern_type="brute_force",system="test-host",tenant_id="tenant-42"} 1
+f2b_attack_pattern_type{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",pattern_type="distributed",system="test-host",tenant_id="tenant-42"} 1
+f2b_attack_pattern_type{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",pattern_type="port_scan",system="test-host",tenant_id="tenant-42"} 1
+# HELP f2b_attack_velocity Attacks per hour for recent time window
+# TYPE f2b_attack_velocity gauge
+f2b_attack_velocity{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 2
+# HELP f2b_attacks_by_city_total Total attacks by city
+# TYPE f2b_attacks_by_city_total counter
+f2b_attacks_by_city_total{city="Los Angeles",country="United States",country_code="US",customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 1
+f2b_attacks_by_city_total{city="Moscow",country="Russia",country_code="RU",customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 1
+f2b_attacks_by_city_total{city="New York",country="United States",country_code="US",customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 1
+# HELP f2b_attacks_by_country_total Total attacks by country code
+# TYPE f2b_attacks_by_country_total counter
+f2b_attacks_by_country_total{country="Russia",country_code="RU",customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 1
+f2b_attacks_by_country_total{country="United States",country_code="US",customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 2
+# HELP f2b_attacks_by_day_of_week Attack distribution by day of week (0-6, Sunday=0)
+# TYPE f2b_attacks_by_day_of_week counter
+f2b_attacks_by_day_of_week{customer_id="cust-1",customer_name="Acme Corp",day="2",system="test-host",tenant_id="tenant-42"} 1
+f2b_attacks_by_day_of_week{customer_id="cust-1",customer_name="Acme Corp",day="3",system="test-host",tenant_id="tenant-42"} 9
+# HELP f2b_attacks_by_hour Attack distribution by hour of day (0-23)
+# TYPE f2b_attacks_by_hour counter
+f2b_attacks_by_hour{customer_id="cust-1",customer_name="Acme Corp",hour="1",system="test-host",tenant_id="tenant-42"} 1
+f2b_attacks_by_hour{customer_id="cust-1",customer_name="Acme Corp",hour="2",system="test-host",tenant_id="tenant-42"} 1
+f2b_attacks_by_hour{customer_id="cust-1",customer_name="Acme Corp",hour="22",system="test-host",tenant_id="tenant-42"} 1
+f2b_attacks_by_hour{customer_id="cust-1",customer_name="Acme Corp",hour="3",system="test-host",tenant_id="tenant-42"} 1
+f2b_attacks_by_hour{customer_id="cust-1",customer_name="Acme Corp",hour="4",system="test-host",tenant_id="tenant-42"} 1
+f2b_attacks_by_hour{customer_id="cust-1",customer_name="Acme Corp",hour="5",system="test-host",tenant_id="tenant-42"} 1
+f2b_attacks_by_hour{customer_id="cust-1",customer_name="Acme Corp",hour="6",system="test-host",tenant_id="tenant-42"} 2
+f2b_attacks_by_hour{customer_id="cust-1",customer_name="Acme Corp",hour="7",system="test-host",tenant_id="tenant-42"} 2
+# HELP f2b_ban_age_seconds How long an IP has been banned in seconds
+# TYPE f2b_ban_age_seconds gauge
+f2b_ban_age_seconds{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.99",jail="sshd",system="test-host",tenant_id="tenant-42"} 3600
+# HELP f2b_ban_duration_remaining_seconds Time remaining until ban expires in seconds
+# TYPE f2b_ban_duration_remaining_seconds gauge
+f2b_ban_duration_remaining_seconds{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.99",jail="sshd",system="test-host",tenant_id="tenant-42"} 3.1535964e+09
+# HELP f2b_ban_expiry_timestamp Unix timestamp when ban expires
+# TYPE f2b_ban_expiry_timestamp gauge
+f2b_ban_expiry_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.99",jail="sshd",system="test-host",tenant_id="tenant-42"} 4.8905244e+09
+# HELP f2b_ban_history_total Total bans ever recorded (including expired)
+# TYPE f2b_ban_history_total counter
+f2b_ban_history_total{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 12
+# HELP f2b_banned_ip Currently banned IP address (value is 1 if banned, 0 otherwise)
+# TYPE f2b_banned_ip gauge
+f2b_banned_ip{city="",country="",country_code="",customer_id="cust-1",customer_name="Acme Corp",ip="198.51.100.20",jail="apache-auth",latitude="",longitude="",system="test-host",tenant_id="tenant-42"} 1
+f2b_banned_ip{city="Los Angeles",country="United States",country_code="US",customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.14",jail="sshd",latitude="34.052200",longitude="-118.243700",system="test-host",tenant_id="tenant-42"} 1
+f2b_banned_ip{city="Moscow",country="Russia",country_code="RU",customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.12",jail="sshd",latitude="55.755800",longitude="37.617300",system="test-host",tenant_id="tenant-42"} 1
+f2b_banned_ip{city="New York",country="United States",country_code="US",customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.10",jail="sshd",latitude="40.712800",longitude="-74.006000",system="test-host",tenant_id="tenant-42"} 1
+# HELP f2b_collection_duration_seconds Time taken to complete metric collection in seconds
+# TYPE f2b_collection_duration_seconds gauge
+f2b_collection_duration_seconds{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} -1
+# HELP f2b_config_jail_ban_time How long an IP is banned for in this jail (in seconds)
+# TYPE f2b_config_jail_ban_time gauge
+f2b_config_jail_ban_time{customer_id="cust-1",customer_name="Acme Corp",jail="apache-auth",system="test-host",tenant_id="tenant-42"} 7200
+f2b_config_jail_ban_time{customer_id="cust-1",customer_name="Acme Corp",jail="recidive",system="test-host",tenant_id="tenant-42"} 86400
+f2b_config_jail_ban_time{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 3600
+# HELP f2b_config_jail_find_time How far back will the filter look for failures in this jail (in seconds)
+# TYPE f2b_config_jail_find_time gauge
+f2b_config_jail_find_time{customer_id="cust-1",customer_name="Acme Corp",jail="apache-auth",system="test-host",tenant_id="tenant-42"} 300
+f2b_config_jail_find_time{customer_id="cust-1",customer_name="Acme Corp",jail="recidive",system="test-host",tenant_id="tenant-42"} 600
+f2b_config_jail_find_time{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 600
+# HELP f2b_config_jail_max_retries The number of failures allowed until the IP is banned by this jail
+# TYPE f2b_config_jail_max_retries gauge
+f2b_config_jail_max_retries{customer_id="cust-1",customer_name="Acme Corp",jail="apache-auth",system="test-host",tenant_id="tenant-42"} 3
+f2b_config_jail_max_retries{customer_id="cust-1",customer_name="Acme Corp",jail="recidive",system="test-host",tenant_id="tenant-42"} 3
+f2b_config_jail_max_retries{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 5
+# HELP f2b_database_query_duration_seconds Database query performance in seconds
+# TYPE f2b_database_query_duration_seconds gauge
+f2b_database_query_duration_seconds{customer_id="cust-1",customer_name="Acme Corp",query_type="banned_ips",system="test-host",tenant_id="tenant-42"} -1
+# HELP f2b_errors Number of errors found since startup
+# TYPE f2b_errors counter
+f2b_errors{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42",type="socket_conn"} 0
+f2b_errors{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42",type="socket_req"} 0
+# HELP f2b_geo_lookup_duration_seconds Geo lookup performance in seconds
+# TYPE f2b_geo_lookup_duration_seconds gauge
+f2b_geo_lookup_duration_seconds{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} -1
+# HELP f2b_geographic_attack_rate Attacks per country per hour
+# TYPE f2b_geographic_attack_rate gauge
+f2b_geographic_attack_rate{country="Russia",country_code="RU",customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 1
+f2b_geographic_attack_rate{country="United States",country_code="US",customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 2
+# HELP f2b_ip_ban_count_total Total times an IP has been banned (across all jails)
+# TYPE f2b_ip_ban_count_total counter
+f2b_ip_ban_count_total{customer_id="cust-1",customer_name="Acme Corp",ip="198.51.100.20",system="test-host",tenant_id="tenant-42"} 1
+f2b_ip_ban_count_total{customer_id="cust-1",customer_name="Acme Corp",ip="198.51.100.21",system="test-host",tenant_id="tenant-42"} 1
+f2b_ip_ban_count_total{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.10",system="test-host",tenant_id="tenant-42"} 4
+f2b_ip_ban_count_total{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.11",system="test-host",tenant_id="tenant-42"} 1
+f2b_ip_ban_count_total{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.12",system="test-host",tenant_id="tenant-42"} 1
+f2b_ip_ban_count_total{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.13",system="test-host",tenant_id="tenant-42"} 1
+f2b_ip_ban_count_total{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.14",system="test-host",tenant_id="tenant-42"} 1
+f2b_ip_ban_count_total{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.200",system="test-host",tenant_id="tenant-42"} 1
+f2b_ip_ban_count_total{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.99",system="test-host",tenant_id="tenant-42"} 1
+# HELP f2b_ip_first_seen_timestamp First time IP was banned (Unix timestamp)
+# TYPE f2b_ip_first_seen_timestamp gauge
+f2b_ip_first_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="198.51.100.20",system="test-host",tenant_id="tenant-42"} 1.7369244e+09
+f2b_ip_first_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="198.51.100.21",system="test-host",tenant_id="tenant-42"} 1.7369208e+09
+f2b_ip_first_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.10",system="test-host",tenant_id="tenant-42"} 1.7366688e+09
+f2b_ip_first_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.11",system="test-host",tenant_id="tenant-42"} 1.7369172e+09
+f2b_ip_first_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.12",system="test-host",tenant_id="tenant-42"} 1.7369136e+09
+f2b_ip_first_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.13",system="test-host",tenant_id="tenant-42"} 1.7369064e+09
+f2b_ip_first_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.14",system="test-host",tenant_id="tenant-42"} 1.7369028e+09
+f2b_ip_first_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.99",system="test-host",tenant_id="tenant-42"} 1.7369244e+09
+# HELP f2b_ip_last_seen_timestamp Most recent ban time (Unix timestamp)
+# TYPE f2b_ip_last_seen_timestamp gauge
+f2b_ip_last_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="198.51.100.20",system="test-host",tenant_id="tenant-42"} 1.7369244e+09
+f2b_ip_last_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="198.51.100.21",system="test-host",tenant_id="tenant-42"} 1.7369208e+09
+f2b_ip_last_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.10",system="test-host",tenant_id="tenant-42"} 1.7369208e+09
+f2b_ip_last_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.11",system="test-host",tenant_id="tenant-42"} 1.7369172e+09
+f2b_ip_last_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.12",system="test-host",tenant_id="tenant-42"} 1.7369136e+09
+f2b_ip_last_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.13",system="test-host",tenant_id="tenant-42"} 1.7369064e+09
+f2b_ip_last_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.14",system="test-host",tenant_id="tenant-42"} 1.7369028e+09
+f2b_ip_last_seen_timestamp{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.99",system="test-host",tenant_id="tenant-42"} 1.7369244e+09
+# HELP f2b_jail_banned_current Number of IPs currently banned in this jail
+# TYPE f2b_jail_banned_current gauge
+f2b_jail_banned_current{customer_id="cust-1",customer_name="Acme Corp",jail="apache-auth",system="test-host",tenant_id="tenant-42"} 1
+f2b_jail_banned_current{customer_id="cust-1",customer_name="Acme Corp",jail="recidive",system="test-host",tenant_id="tenant-42"} 0
+f2b_jail_banned_current{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 3
+# HELP f2b_jail_banned_total Total number of IPs banned by this jail (includes expired bans)
+# TYPE f2b_jail_banned_total gauge
+f2b_jail_banned_total{customer_id="cust-1",customer_name="Acme Corp",jail="apache-auth",system="test-host",tenant_id="tenant-42"} 2
+f2b_jail_banned_total{customer_id="cust-1",customer_name="Acme Corp",jail="recidive",system="test-host",tenant_id="tenant-42"} 0
+f2b_jail_banned_total{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 10
+# HELP f2b_jail_count Number of defined jails
+# TYPE f2b_jail_count gauge
+f2b_jail_count{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 3
+# HELP f2b_jail_failed_current Number of current failures on this jail's filter
+# TYPE f2b_jail_failed_current gauge
+f2b_jail_failed_current{customer_id="cust-1",customer_name="Acme Corp",jail="apache-auth",system="test-host",tenant_id="tenant-42"} 0
+f2b_jail_failed_current{customer_id="cust-1",customer_name="Acme Corp",jail="recidive",system="test-host",tenant_id="tenant-42"} 0
+f2b_jail_failed_current{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 3
+# HELP f2b_jail_failed_total Number of total failures on this jail's filter
+# TYPE f2b_jail_failed_total gauge
+f2b_jail_failed_total{customer_id="cust-1",customer_name="Acme Corp",jail="apache-auth",system="test-host",tenant_id="tenant-42"} 5
+f2b_jail_failed_total{customer_id="cust-1",customer_name="Acme Corp",jail="recidive",system="test-host",tenant_id="tenant-42"} 0
+f2b_jail_failed_total{customer_id="cust-1",customer_name="Acme Corp",jail="sshd",system="test-host",tenant_id="tenant-42"} 42
+# HELP f2b_metrics_exported_total Total number of metrics exported per collection
+# TYPE f2b_metrics_exported_total counter
+f2b_metrics_exported_total{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 10
+# HELP f2b_repeat_offender Boolean flag (1 if banned multiple times, 0 otherwise)
+# TYPE f2b_repeat_offender gauge
+f2b_repeat_offender{customer_id="cust-1",customer_name="Acme Corp",ip="198.51.100.20",system="test-host",tenant_id="tenant-42"} 0
+f2b_repeat_offender{customer_id="cust-1",customer_name="Acme Corp",ip="198.51.100.21",system="test-host",tenant_id="tenant-42"} 0
+f2b_repeat_offender{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.10",system="test-host",tenant_id="tenant-42"} 1
+f2b_repeat_offender{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.11",system="test-host",tenant_id="tenant-42"} 0
+f2b_repeat_offender{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.12",system="test-host",tenant_id="tenant-42"} 0
+f2b_repeat_offender{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.13",system="test-host",tenant_id="tenant-42"} 0
+f2b_repeat_offender{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.14",system="test-host",tenant_id="tenant-42"} 0
+f2b_repeat_offender{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.200",system="test-host",tenant_id="tenant-42"} 0
+f2b_repeat_offender{customer_id="cust-1",customer_name="Acme Corp",ip="203.0.113.99",system="test-host",tenant_id="tenant-42"} 0
+# HELP f2b_suspicious_pattern_score Score indicating suspicious activity (0-100)
+# TYPE f2b_suspicious_pattern_score gauge
+f2b_suspicious_pattern_score{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 75
+# HELP f2b_top_attack_countries Top N attacking countries (gauge with rank)
+# TYPE f2b_top_attack_countries gauge
+f2b_top_attack_countries{country="Russia",country_code="RU",customer_id="cust-1",customer_name="Acme Corp",rank="2",system="test-host",tenant_id="tenant-42"} 1
+f2b_top_attack_countries{country="United States",country_code="US",customer_id="cust-1",customer_name="Acme Corp",rank="1",system="test-host",tenant_id="tenant-42"} 2
+# HELP f2b_up Check if the fail2ban server is up
+# TYPE f2b_up gauge
+f2b_up{customer_id="cust-1",customer_name="Acme Corp",system="test-host",tenant_id="tenant-42"} 1
+# HELP f2b_version Version of the exporter and fail2ban server
+# TYPE f2b_version gauge
+f2b_version{customer_id="cust-1",customer_name="Acme Corp",exporter="1.2.0-beta-test",fail2ban="1.0.2",system="test-host",tenant_id="tenant-42"} 1

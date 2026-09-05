@@ -31,6 +31,8 @@ type Collector struct {
 	geoEnabled                 bool
 	db                         *database.Database
 	maxIPMetrics               int
+	// nowFn is a clock seam for tests; defaults to time.Now in NewExporter.
+	nowFn func() time.Time
 	// mu guards every mutable field below it; held for the whole of Collect() and IsHealthy(),
 	// since a gather is I/O-bound (socket + SQLite) and the fields it touches include maps.
 	mu sync.Mutex
@@ -79,6 +81,7 @@ func NewExporter(appSettings *cfg.AppSettings, exporterVersion string) *Collecto
 		lastRepeatOffenderCount:    0,
 		lastCollectionTime:         0,
 		alertSettings:              &appSettings.Alert,
+		nowFn:                      time.Now,
 	}
 
 	// Initialize database if path is provided
@@ -117,7 +120,7 @@ func NewExporter(appSettings *cfg.AppSettings, exporterVersion string) *Collecto
 // getActiveBans returns currently active bans from the database, cached for
 // dbCacheTTL so a 15s Prometheus scrape interval does not hammer SQLite.
 func (c *Collector) getActiveBans() ([]database.BannedIP, error) {
-	if c.dbCacheTTL > 0 && c.cachedActiveBans != nil && time.Since(c.activeBansAt) < c.dbCacheTTL {
+	if c.dbCacheTTL > 0 && c.cachedActiveBans != nil && c.nowFn().Sub(c.activeBansAt) < c.dbCacheTTL {
 		return c.cachedActiveBans, nil
 	}
 	bans, err := c.db.GetBannedIPs()
@@ -125,7 +128,7 @@ func (c *Collector) getActiveBans() ([]database.BannedIP, error) {
 		return nil, err
 	}
 	c.cachedActiveBans = bans
-	c.activeBansAt = time.Now()
+	c.activeBansAt = c.nowFn()
 	return bans, nil
 }
 
@@ -133,7 +136,7 @@ func (c *Collector) getActiveBans() ([]database.BannedIP, error) {
 // dbCacheTTL. Shared by the historical, pattern, and alert collectors so a
 // single scrape runs the full-table query at most once.
 func (c *Collector) getAllBans() ([]database.BannedIP, error) {
-	if c.dbCacheTTL > 0 && c.cachedAllBans != nil && time.Since(c.allBansAt) < c.dbCacheTTL {
+	if c.dbCacheTTL > 0 && c.cachedAllBans != nil && c.nowFn().Sub(c.allBansAt) < c.dbCacheTTL {
 		return c.cachedAllBans, nil
 	}
 	bans, err := c.db.GetAllBans()
@@ -141,7 +144,7 @@ func (c *Collector) getAllBans() ([]database.BannedIP, error) {
 		return nil, err
 	}
 	c.cachedAllBans = bans
-	c.allBansAt = time.Now()
+	c.allBansAt = c.nowFn()
 	return bans, nil
 }
 
@@ -187,7 +190,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	collectionStart := time.Now()
+	collectionStart := c.nowFn()
 	var metricsExported int
 	var collectionErrors int
 	var dbQueryDuration time.Duration
@@ -215,21 +218,21 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	// Track banned IP metrics collection
-	bannedIPStart := time.Now()
+	bannedIPStart := c.nowFn()
 	c.collectBannedIPMetrics(ch)
 	metricsExported++
 
 	// Track time-based metrics with database query timing
 	if c.db != nil {
-		dbStart := time.Now()
+		dbStart := c.nowFn()
 		c.collectTimeBasedMetrics(ch)
-		dbQueryDuration += time.Since(dbStart)
+		dbQueryDuration += c.nowFn().Sub(dbStart)
 		metricsExported++
 
 		// Track historical ban metrics
-		dbStart = time.Now()
+		dbStart = c.nowFn()
 		c.collectHistoricalBanMetrics(ch)
-		dbQueryDuration += time.Since(dbStart)
+		dbQueryDuration += c.nowFn().Sub(dbStart)
 		metricsExported++
 	}
 
@@ -247,10 +250,10 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 	// Track geo lookup duration if enabled
 	if c.geoEnabled && c.geoProvider != nil {
-		geoStart := time.Now()
+		geoStart := c.nowFn()
 		// Geo lookups happen during banned IP collection, so we approximate
 		// by measuring the time spent in banned IP collection
-		geoLookupDuration = time.Since(bannedIPStart)
+		geoLookupDuration = c.nowFn().Sub(bannedIPStart)
 		_ = geoStart // Avoid unused variable warning
 	}
 
@@ -258,7 +261,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	metricsExported++
 
 	// Export performance metrics
-	collectionDuration := time.Since(collectionStart)
+	collectionDuration := c.nowFn().Sub(collectionStart)
 	customerLabels := getCustomerLabels(c.customerID, c.customerName, c.tenantID)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -417,7 +420,7 @@ func (c *Collector) collectTimeBasedMetrics(ch chan<- prometheus.Metric) {
 		bannedIPs = sorted[:c.maxIPMetrics]
 	}
 
-	currentTime := time.Now().Unix()
+	currentTime := c.nowFn().Unix()
 	customerLabels := getCustomerLabels(c.customerID, c.customerName, c.tenantID)
 
 	for _, bannedIP := range bannedIPs {
@@ -739,8 +742,8 @@ func (c *Collector) collectAttackPatternMetrics(ch chan<- prometheus.Metric) {
 
 	// Build a fresh detector every scrape: feeding the same bans into a
 	// persistent detector would duplicate them and inflate pattern counts.
-	detector := NewPatternDetector()
-	cutoffTime := time.Now().Unix() - (48 * 3600)
+	detector := newPatternDetectorWithClock(c.nowFn)
+	cutoffTime := c.nowFn().Unix() - (48 * 3600)
 	for _, ban := range allBans {
 		if ban.TimeOfBan >= cutoffTime {
 			// Get country for this IP if geo is enabled
@@ -821,7 +824,7 @@ func (c *Collector) collectAttackPatternMetrics(ch chan<- prometheus.Metric) {
 
 func (c *Collector) collectAlertMetrics(ch chan<- prometheus.Metric) {
 	customerLabels := getCustomerLabels(c.customerID, c.customerName, c.tenantID)
-	currentTime := time.Now().Unix()
+	currentTime := c.nowFn().Unix()
 
 	// Get current jail stats
 	s, err := socket.ConnectToSocket(c.socketPath)
