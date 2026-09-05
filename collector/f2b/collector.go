@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/NightSquawk/fail2ban-prometheus-exporter/cfg"
@@ -30,6 +31,9 @@ type Collector struct {
 	geoEnabled                 bool
 	db                         *database.Database
 	maxIPMetrics               int
+	// mu guards every mutable field below it; held for the whole of Collect() and IsHealthy(),
+	// since a gather is I/O-bound (socket + SQLite) and the fields it touches include maps.
+	mu sync.Mutex
 	// Database query cache (avoids full-table scans on every scrape)
 	dbCacheTTL       time.Duration
 	cachedActiveBans []database.BannedIP
@@ -180,6 +184,9 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	collectionStart := time.Now()
 	var metricsExported int
 	var collectionErrors int
@@ -287,6 +294,9 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 }
 
 func (c *Collector) IsHealthy() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	s, err := socket.ConnectToSocket(c.socketPath)
 	if err != nil {
 		log.Printf("error opening socket: %v", err)
