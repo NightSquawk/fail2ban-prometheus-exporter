@@ -37,7 +37,7 @@ func main() {
 	log.Printf("fail2ban exporter version %s", version)
 	log.Printf("starting server at %s", appSettings.MetricsAddress)
 
-	f2bCollector := f2b.NewExporter(appSettings, version)
+	f2bCollector := f2b.NewExporter(appSettings, f2b.BuildInfo{Version: version, Commit: commit})
 	prometheus.MustRegister(f2bCollector)
 
 	textFileCollector := textfile.NewCollector(appSettings)

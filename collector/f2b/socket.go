@@ -1,9 +1,10 @@
+// Package f2b: this file holds only the Prometheus metric descriptors and
+// the small getCustomerLabels helper. The gathering and emission logic that
+// used to live alongside these descriptors now lives in snapshot.go
+// (gathering) and flatten.go (emission) - see collector.go's package docs.
 package f2b
 
 import (
-	"log"
-
-	"github.com/NightSquawk/fail2ban-prometheus-exporter/socket"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -216,135 +217,3 @@ var (
 		[]string{"system", "customer_id", "customer_name", "tenant_id"}, nil,
 	)
 )
-
-func (c *Collector) collectErrorCountMetric(ch chan<- prometheus.Metric) {
-	customerLabels := getCustomerLabels(c.customerID, c.customerName, c.tenantID)
-	ch <- prometheus.MustNewConstMetric(
-		metricErrorCount, prometheus.CounterValue, float64(c.socketConnectionErrorCount),
-		append([]string{"socket_conn", c.hostname}, customerLabels...)...,
-	)
-	ch <- prometheus.MustNewConstMetric(
-		metricErrorCount, prometheus.CounterValue, float64(c.socketRequestErrorCount),
-		append([]string{"socket_req", c.hostname}, customerLabels...)...,
-	)
-}
-
-func (c *Collector) collectServerUpMetric(ch chan<- prometheus.Metric, s *socket.Fail2BanSocket) {
-	var serverUp float64 = 0
-	if s != nil {
-		pingSuccess, err := s.Ping()
-		if err != nil {
-			c.socketRequestErrorCount++
-			log.Print(err)
-		}
-		if err == nil && pingSuccess {
-			serverUp = 1
-		}
-	}
-	customerLabels := getCustomerLabels(c.customerID, c.customerName, c.tenantID)
-	ch <- prometheus.MustNewConstMetric(
-		metricServerUp, prometheus.GaugeValue, serverUp,
-		append([]string{c.hostname}, customerLabels...)...,
-	)
-}
-
-func (c *Collector) collectJailMetrics(ch chan<- prometheus.Metric, s *socket.Fail2BanSocket) {
-	jails, err := s.GetJails()
-	var count float64 = 0
-	if err != nil {
-		c.socketRequestErrorCount++
-		log.Print(err)
-	}
-	if err == nil {
-		// jail_count reports what this exporter exports, so it counts the jails
-		// left after --collector.f2b.jail-include/-exclude, not the jails fail2ban
-		// has configured.
-		jails = c.jails.filterJails(jails)
-		count = float64(len(jails))
-	}
-	customerLabels := getCustomerLabels(c.customerID, c.customerName, c.tenantID)
-	ch <- prometheus.MustNewConstMetric(
-		metricJailCount, prometheus.GaugeValue, count,
-		append([]string{c.hostname}, customerLabels...)...,
-	)
-
-	for i := range jails {
-		c.collectJailStatsMetric(ch, s, jails[i])
-		c.collectJailConfigMetrics(ch, s, jails[i])
-	}
-}
-
-func (c *Collector) collectJailStatsMetric(ch chan<- prometheus.Metric, s *socket.Fail2BanSocket, jail string) {
-	stats, err := s.GetJailStats(jail)
-	if err != nil {
-		c.socketRequestErrorCount++
-		log.Printf("failed to get stats for jail %s: %v", jail, err)
-		return
-	}
-
-	customerLabels := getCustomerLabels(c.customerID, c.customerName, c.tenantID)
-	ch <- prometheus.MustNewConstMetric(
-		metricJailFailedCurrent, prometheus.GaugeValue, float64(stats.FailedCurrent),
-		append([]string{jail, c.hostname}, customerLabels...)...,
-	)
-	ch <- prometheus.MustNewConstMetric(
-		metricJailFailedTotal, prometheus.CounterValue, float64(stats.FailedTotal),
-		append([]string{jail, c.hostname}, customerLabels...)...,
-	)
-	ch <- prometheus.MustNewConstMetric(
-		metricJailBannedCurrent, prometheus.GaugeValue, float64(stats.BannedCurrent),
-		append([]string{jail, c.hostname}, customerLabels...)...,
-	)
-	ch <- prometheus.MustNewConstMetric(
-		metricJailBannedTotal, prometheus.CounterValue, float64(stats.BannedTotal),
-		append([]string{jail, c.hostname}, customerLabels...)...,
-	)
-}
-
-func (c *Collector) collectJailConfigMetrics(ch chan<- prometheus.Metric, s *socket.Fail2BanSocket, jail string) {
-	customerLabels := getCustomerLabels(c.customerID, c.customerName, c.tenantID)
-	banTime, err := s.GetJailBanTime(jail)
-	if err != nil {
-		c.socketRequestErrorCount++
-		log.Printf("failed to get ban time for jail %s: %v", jail, err)
-	} else {
-		ch <- prometheus.MustNewConstMetric(
-			metricJailBanTime, prometheus.GaugeValue, float64(banTime),
-			append([]string{jail, c.hostname}, customerLabels...)...,
-		)
-	}
-	findTime, err := s.GetJailFindTime(jail)
-	if err != nil {
-		c.socketRequestErrorCount++
-		log.Printf("failed to get find time for jail %s: %v", jail, err)
-	} else {
-		ch <- prometheus.MustNewConstMetric(
-			metricJailFindTime, prometheus.GaugeValue, float64(findTime),
-			append([]string{jail, c.hostname}, customerLabels...)...,
-		)
-	}
-	maxRetry, err := s.GetJailMaxRetries(jail)
-	if err != nil {
-		c.socketRequestErrorCount++
-		log.Printf("failed to get max retries for jail %s: %v", jail, err)
-	} else {
-		ch <- prometheus.MustNewConstMetric(
-			metricJailMaxRetry, prometheus.GaugeValue, float64(maxRetry),
-			append([]string{jail, c.hostname}, customerLabels...)...,
-		)
-	}
-}
-
-func (c *Collector) collectVersionMetric(ch chan<- prometheus.Metric, s *socket.Fail2BanSocket) {
-	fail2banVersion, err := s.GetServerVersion()
-	if err != nil {
-		c.socketRequestErrorCount++
-		log.Printf("failed to get fail2ban server version: %v", err)
-	}
-
-	customerLabels := getCustomerLabels(c.customerID, c.customerName, c.tenantID)
-	ch <- prometheus.MustNewConstMetric(
-		metricVersionInfo, prometheus.GaugeValue, float64(1),
-		append([]string{c.exporterVersion, fail2banVersion, c.hostname}, customerLabels...)...,
-	)
-}
