@@ -25,12 +25,23 @@ func StartServer(
 		metricsHandler(),
 		appSettings.AuthProvider,
 	))
+	// /metrics.json goes through the SAME AuthMiddleware wrapper as / and
+	// /metrics - never registered bare like /health - so both the
+	// --web.config-file layer (exporter-toolkit, wrapping the whole server)
+	// and the deprecated --web.basic-auth.* flags (enforced by AuthMiddleware
+	// itself) cover it. There is no unauthenticated path to the fail2ban
+	// domain snapshot. See docs/metrics-json-schema-v1.md §1.
+	mux.Handle(metricsJSONPath, AuthMiddleware(
+		metricsJSONHandler(f2bCollector),
+		appSettings.AuthProvider,
+	))
 	mux.HandleFunc("/health",
 		func(w http.ResponseWriter, r *http.Request) {
 			healthHandler(w, r, f2bCollector)
 		},
 	)
 	log.Printf("metrics available at '%s'", metricsPath)
+	log.Printf("json metrics available at '%s'", metricsJSONPath)
 
 	svrErr := make(chan error)
 	go func() {

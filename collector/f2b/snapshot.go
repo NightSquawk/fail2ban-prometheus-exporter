@@ -49,7 +49,8 @@ type SnapshotOptions struct {
 }
 
 // allSections is every section Collect() always wants; a full gather behind
-// /metrics never has a reason to skip one.
+// /metrics never has a reason to skip one. It also enumerates every valid
+// section name - see ValidSections.
 var allSections = map[string]bool{
 	"jails":    true,
 	"bans":     true,
@@ -57,6 +58,59 @@ var allSections = map[string]bool{
 	"geo":      true,
 	"activity": true,
 	"alerts":   true,
+}
+
+// defaultIncludeSections is what /metrics.json gathers when its include query
+// parameter is omitted (docs/metrics-json-schema-v1.md §1.1: "jails,alerts").
+var defaultIncludeSections = map[string]bool{
+	"jails":  true,
+	"alerts": true,
+}
+
+// ValidSections returns a fresh copy of every section name SnapshotOptions.
+// Include accepts ("jails", "bans", "patterns", "geo", "activity", "alerts").
+// The collector is the single source of truth for this set; callers (e.g.
+// the /metrics.json handler validating its include query parameter) must use
+// this instead of hardcoding a second copy of the list. Each call returns a
+// new map so a caller cannot mutate package state.
+func ValidSections() map[string]bool {
+	return cloneSectionSet(allSections)
+}
+
+// DefaultSections returns a fresh copy of the sections /metrics.json gathers
+// when its include query parameter is absent (docs/metrics-json-schema-v1.md
+// §1.1). Each call returns a new map so a caller cannot mutate package state.
+func DefaultSections() map[string]bool {
+	return cloneSectionSet(defaultIncludeSections)
+}
+
+func cloneSectionSet(src map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+// EffectiveMaxIPs resolves requested (a raw, already-validated maxIps query
+// value; 0 means "not specified") against the collector's configured ceiling
+// (--collector.f2b.max-ip-metrics), per the table in
+// docs/metrics-json-schema-v1.md §1.2. buildBans uses this to cap
+// bans.items, and any caller computing the ETag's request-scope digest
+// (docs/metrics-json-schema-v1.md §1.3, "plus the effective maxIps") must
+// resolve the SAME value through this method rather than hashing the raw
+// request value - otherwise two requests that clamp to an identical
+// effective cap, and therefore serve byte-identical bodies, would disagree
+// on ETag. maxIPMetrics is set once at construction and never mutated
+// afterward, so this is safe to call without holding c.mu.
+func (c *Collector) EffectiveMaxIPs(requested int) int {
+	if requested <= 0 {
+		return c.maxIPMetrics
+	}
+	if c.maxIPMetrics > 0 && requested > c.maxIPMetrics {
+		return c.maxIPMetrics
+	}
+	return requested
 }
 
 // ExporterInfo is the envelope's "exporter" object.
@@ -823,13 +877,10 @@ func (c *Collector) buildBans(snap *Snapshot, opts SnapshotOptions, gatherStart 
 	// but never widen past --collector.f2b.max-ip-metrics. Clamping here rather
 	// than in the caller is deliberate - no request parameter must be able to
 	// make a JSON poll show more than /metrics would. See
-	// docs/metrics-json-schema-v1.md section 1.2.
-	maxIPs := opts.MaxIPs
-	if maxIPs <= 0 {
-		maxIPs = c.maxIPMetrics
-	} else if c.maxIPMetrics > 0 && maxIPs > c.maxIPMetrics {
-		maxIPs = c.maxIPMetrics
-	}
+	// docs/metrics-json-schema-v1.md section 1.2. EffectiveMaxIPs is also what
+	// the /metrics.json handler calls to keep its ETag's "effective maxIps"
+	// scope component in sync with this clamp.
+	maxIPs := c.EffectiveMaxIPs(opts.MaxIPs)
 	capped := collapsed
 	if maxIPs > 0 && len(capped) > maxIPs {
 		capped = capped[:maxIPs]

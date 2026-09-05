@@ -122,7 +122,14 @@ generic JSON `GET`, and none is invented here. `--collector.f2b.timeout` bounds
 each individual socket dial and command, but a gather issuing several
 per-jail round trips is not bounded by it in total. A slow-but-reachable
 fail2ban server therefore makes the request **block** rather than return `503`;
-callers must set their own client timeout. Because a gather holds the collector
+callers must set their own client timeout.
+
+This is deliberate and explicit, not an oversight: the shared HTTP server sets
+a 10s `WriteTimeout` to protect the other routes, and the `/metrics.json`
+handler clears the read and write deadlines for its own response so that a long
+gather cannot have its connection torn down mid-write. Restoring the shared
+deadline on this route would reintroduce exactly the truncated-response failure
+that §1.4's “never a 200 with a partially populated envelope” rules out. Because a gather holds the collector
 mutex for its whole body, one slow gather also delays subsequent requests to
 both endpoints.
 
