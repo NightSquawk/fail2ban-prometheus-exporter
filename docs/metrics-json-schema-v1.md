@@ -6,6 +6,10 @@ Versioned contract for the JSON snapshot endpoint exposed by
 `schemaVersion` is `1`. Within v1 the exporter may **add** fields; it will not
 remove or retype existing ones. Consumers must ignore unknown fields.
 
+> This document describes an endpoint that has not shipped yet. Until
+> `1.2.0-beta` is released, corrections to the text below are corrections to
+> v1 itself, not breaking changes requiring a `schemaVersion: 2`.
+
 ---
 
 ## 1. Endpoint
@@ -14,9 +18,20 @@ remove or retype existing ones. Consumers must ignore unknown fields.
 GET /metrics.json
 ```
 
-Protected by the **same** auth middleware as `/metrics`. When
-`--web.basic-auth.username` / `--web.basic-auth.password` are set, an
-unauthenticated request receives `401` with an empty body. There is no
+Protected by the **same** authentication as `/metrics`, under either of the
+exporter's two mutually exclusive mechanisms (startup fails if both are
+configured):
+
+| Mechanism | Enforced by | Covers | Rejection |
+| --- | --- | --- | --- |
+| `--web.config-file` (recommended) | `prometheus/exporter-toolkit`, at the HTTP server layer before any handler runs | TLS, mTLS client certificates, multi-user bcrypt basic auth | `401` with a `WWW-Authenticate` header and the plain-text body `Unauthorized\n`; a rejected client certificate fails the TLS handshake with no HTTP response at all |
+| `--web.basic-auth.username` / `--web.basic-auth.password` (deprecated) | this exporter's own per-route `AuthMiddleware` | single user, basic auth | `401` with an **empty** body |
+
+Neither rejection uses the `{"schemaVersion":1,"error":"..."}` envelope of
+§1.4 — both are produced before the JSON handler is reached.
+
+`/metrics.json` **must** be registered through the same `AuthMiddleware`
+wrapper as `/` and `/metrics`, not left bare like `/health`. There is no
 unauthenticated data path.
 
 Response `Content-Type: application/json; charset=utf-8`.
@@ -25,16 +40,17 @@ Response `Content-Type: application/json; charset=utf-8`.
 
 | Param | Type | Default | Behaviour |
 | --- | --- | --- | --- |
-| `include` | comma list | `jails,alerts` | Sections to gather. Valid: `jails`, `bans`, `patterns`, `geo`, `activity`, `alerts`, `textfile`. Unknown or empty-after-trim member → `400`. Duplicates are collapsed. `include=` (present but empty) → `400`. |
+| `include` | comma list | `jails,alerts` | Sections to gather. Valid: `jails`, `bans`, `patterns`, `geo`, `activity`, `alerts`. Unknown or empty-after-trim member → `400`. Duplicates are collapsed. `include=` (present but empty) → `400`. |
 | `maxIps` | integer | configured ceiling | Per-request cap on `bans.items`. See §1.2. |
 
 Sections not requested are **absent from the response body**, not `null` and
 not empty. A requested section with no data is present and empty (`[]` or an
 object with zero counts).
 
-`textfile` is only meaningful when `--collector.textfile.directory` is set. If
-the flag is unset the section is omitted even when requested — the request is
-not an error.
+`--collector.f2b.ip-anonymize` and `--collector.f2b.jail-include` /
+`--collector.f2b.jail-exclude` are **static server configuration**. No query
+parameter can request raw or unfiltered data: `/metrics.json` cannot be used to
+see anything `/metrics` hides.
 
 ### 1.2. `maxIps` resolution
 
@@ -49,8 +65,10 @@ unlimited).
 | `maxIps > ceiling > 0` | `ceiling` (clamped) |
 | `maxIps < 0` or non-integer | `400` |
 
-The cap applies to `bans.items` only. `bans.total` always reports the full
-pre-truncation count, and every aggregate section (`jails`, `geo`, `activity`,
+The cap applies to `bans.items` only, and counts rows **after** the
+anonymization collapse of §3.2 — it caps exported rows, not pre-collapse ban
+records, mirroring `--collector.f2b.max-ip-metrics` on the Prometheus path.
+`bans.total` always reports the full pre-truncation count, and every aggregate section (`jails`, `geo`, `activity`,
 `patterns`, `alerts`) is computed over the complete data set.
 
 ### 1.3. Caching — `ETag` / `If-None-Match`
@@ -94,9 +112,19 @@ this body — never a `200` with a partially populated envelope:
 | Status | Cause |
 | --- | --- |
 | `400` | Unknown `include` section, malformed `maxIps`. |
-| `401` | Basic auth configured and credentials absent or wrong. |
+| `401` | Authentication configured and credentials absent or wrong. Body shape depends on the mechanism — see §1. |
 | `405` | Method other than `GET` or `HEAD`. |
 | `500` | Snapshot gather or JSON serialisation failed. |
+
+There is **no request-scoped deadline** on `/metrics.json`. `/metrics` honours
+Prometheus's `X-Prometheus-Scrape-Timeout-Seconds`; no such header exists for a
+generic JSON `GET`, and none is invented here. `--collector.f2b.timeout` bounds
+each individual socket dial and command, but a gather issuing several
+per-jail round trips is not bounded by it in total. A slow-but-reachable
+fail2ban server therefore makes the request **block** rather than return `503`;
+callers must set their own client timeout. Because a gather holds the collector
+mutex for its whole body, one slow gather also delays subsequent requests to
+both endpoints.
 
 A **down fail2ban socket is not an error.** It is a representable state:
 `fail2ban.up` is `false`, `errors.socketConn` has advanced, and jail-derived
@@ -134,15 +162,16 @@ sections are empty. This mirrors `f2b_up 0` on the Prometheus path.
 | `collectedAt` | RFC3339 UTC string | Second precision, `Z` suffix. |
 | `collectionDurationMs` | int | Gather wall time, milliseconds. |
 | `exporter.name` | string | Constant `"fail2ban-prometheus-exporter"`. |
-| `exporter.version` | string | goreleaser `main.version`. |
-| `exporter.commit` | string | goreleaser `main.commit`; `"none"` on unstamped builds. |
+| `exporter.version` | string | `main.version`, injected by the `-ldflags` in `Makefile` / `.github/workflows/release.yml`. |
+| `exporter.commit` | string | `main.commit`, same mechanism; `"none"` on unstamped builds. |
 | `host.hostname` | string | `os.Hostname()`, or `"unknown"`. Same value as the `system` Prometheus label. |
 | `labels.*` | string | `--customer.id`, `--customer.name`, `--tenant.id`. Empty strings when unset, never omitted. |
 | `fail2ban.up` | bool | Socket connected **and** `ping` returned `pong`. |
 | `fail2ban.version` | string | fail2ban server version; `""` when the socket is down. |
 | `fail2ban.databaseEnabled` | bool | `--collector.f2b.database` set and the database opened. |
 | `fail2ban.geoEnabled` | bool | `--geo.enabled` set and the provider initialised. |
-| `errors.*` | int | Cumulative-since-startup counters, matching `f2b_errors{type=...}`. `collection` matches `f2b_collection_errors_total`. |
+| `errors.socketConn` / `errors.socketReq` | int | Cumulative-since-startup counters, matching `f2b_errors_total{type=...}`. Both also advance on a socket **timeout** (`--collector.f2b.timeout`), not only on a refused connection or protocol error — they can climb while fail2ban is merely slow rather than down. |
+| `errors.collection` | int | **Not** cumulative: the error count for *this* gather (`0` or `1`), matching the value `f2b_collection_errors_total` reports. |
 
 The envelope is always fully populated, on every request, regardless of
 `include`.
@@ -150,6 +179,17 @@ The envelope is always fully populated, on every request, regardless of
 ---
 
 ## 3. Sections
+
+Two server-side transforms apply to **every** section below, not just the one
+that names them:
+
+- **Jail filtering.** `--collector.f2b.jail-include` / `--collector.f2b.jail-exclude`
+  are applied once, upstream of everything. `jails`, `bans`, `patterns`, `geo`,
+  `activity` and `alerts` are all computed over the filtered set. A filtered-out
+  jail is simply **absent everywhere** — it is never represented as a zero row.
+- **IP anonymization.** `--collector.f2b.ip-anonymize` rewrites every IP-valued
+  field the endpoint emits (`bans.items[].ip`, `patterns[].ip`) exactly as it
+  rewrites the Prometheus `ip` label. See §3.2.
 
 ### 3.1. `jails`
 
@@ -210,7 +250,8 @@ section is present with `{"returned":0,"total":0,"truncated":false,"items":[]}`.
 | `expiresAt` | RFC3339 UTC | `timeofban + bantime`. |
 | `ageSeconds` | int | `collectedAt - bannedAt`, floored at `0`. |
 | `remainingSeconds` | int | `expiresAt - collectedAt`, floored at `0`. |
-| `banCount` | int | Times this IP appears across the whole ban history, all jails. |
+| `ip` | string | The **anonymized** label — see below. |
+| `banCount` | int | Times this IP label appears across the whole ban history, all jails. |
 | `firstSeenAt` / `lastSeenAt` | RFC3339 UTC or `null` | `null` when the history carries no usable timestamp. |
 | `repeatOffender` | bool | `banCount > 1`. |
 | `geo` | object or omitted | Omitted when geo is disabled or the lookup returned nothing. |
@@ -225,6 +266,40 @@ matching `--collector.f2b.max-ip-metrics` semantics.
 
 Bans whose `timeofban` or `bantime` is `0` are excluded, matching the
 Prometheus time-based families.
+
+#### Anonymization and row collapse
+
+`items[].ip` is the anonymized label — the exact value that reaches
+`f2b_banned_ip{ip=...}` — and is **never** the raw address:
+
+| `--collector.f2b.ip-anonymize` | `items[].ip` |
+| --- | --- |
+| `none` (default) | the real address |
+| `mask` | the enclosing CIDR block, e.g. `203.0.113.0/24` |
+| `hash` | the first 16 hex characters of a salted SHA-256 |
+| `mask` or `hash`, address unparseable | the literal `"unknown"` |
+
+`bans.items` **collapses** on that label, mirroring the Prometheus series
+one-for-one: one item per `(jail, ip)` pair, so several real addresses sharing
+a masked block yield a single item. The ban-lifecycle fields (`bannedAt`,
+`expiresAt`, `ageSeconds`, `remainingSeconds`) are taken from the **most recent**
+ban in the collapsed group — the older records are dropped, not merged.
+`total`, `returned` and `truncated` all count post-collapse rows, so `bans.total`
+never exceeds the number of `f2b_banned_ip` series for the same state.
+
+`banCount`, `firstSeenAt`, `lastSeenAt` and `repeatOffender` are properties of
+the **IP label, not of the `(jail, ip)` pair.** They aggregate that label's
+entire ban history across every jail, matching `f2b_ip_ban_count_total{ip=...}`
+and its siblings, which carry no `jail` label. Two items sharing an `ip` in
+different jails therefore report *identical* values for these four fields, and
+an item's `banCount` may exceed the number of bans its own jail ever recorded.
+This is inherited from the Prometheus contract; it is not specific to `mask`
+mode.
+
+`geo` is always derived from the **real** address, even when `ip` is masked or
+hashed — anonymizing the label does not suppress geolocation. Under `mask`,
+`geo` describes whichever real address won the collapse, not a canonical
+location for the block.
 
 ### 3.3. `patterns`
 
@@ -244,6 +319,12 @@ the database; empty array otherwise.
 | `distributed` | bans from 3+ countries in one jail (needs geo) | `""` |
 
 `score` is a float. `ip` is always present, empty for multi-IP pattern types.
+
+`patterns[].ip` passes through the **same** `--collector.f2b.ip-anonymize`
+transform as `bans.items[].ip` (§3.2). This is a JSON-only surface with no
+Prometheus analogue to inherit the transform from — the pattern detector is fed
+the real address — so the anonymization must be applied explicitly here or the
+setting silently has no effect on this one field.
 
 Ordered by `type` ascending, then `jail` ascending, then `ip` ascending.
 
@@ -294,6 +375,11 @@ the Prometheus path, which only emits buckets that have data. `day` is `0` for
 Sunday. Bucketing uses the exporter host's local timezone, matching
 `f2b_attacks_by_hour`.
 
+These counts are **not cumulative**. They are recomputed from the rolling
+48-hour ban window on every gather and can fall as old bans age out, which is
+why `f2b_attacks_by_hour` / `f2b_attacks_by_day_of_week` are gauges rather than
+counters. Do not apply `rate()` reasoning to them.
+
 `velocityPerHour` is bans in the last hour. `suspiciousScore` is the 0–100
 heuristic from `f2b_suspicious_pattern_score`. Both are floats.
 
@@ -316,6 +402,7 @@ Object. Always fully populated — every field present, arrays `[]` rather than
 | --- | --- |
 | `highBanRate` | `f2b_alert_high_ban_rate`. `false` when no prior collection has established a baseline. |
 | `repeatOffenderSpike` | `f2b_alert_repeat_offender_spike` — repeat-offender count up >50% since the last state-advancing gather. |
+
 | `newCountries` | `f2b_alert_new_country_attack`, sorted ascending. |
 | `jailInactive` | `f2b_alert_jail_inactive`, sorted ascending. |
 | `coordinatedAttack` | `f2b_alert_coordinated_attack`, sorted by `jail` then `countryCode`. |
@@ -334,31 +421,11 @@ accumulates and `highBanRate` never leaves `false` — there is no baseline.
 
 Treat `alerts` as *current pending state*, not as an event stream.
 
-### 3.7. `textfile`
-
-Present only when `--collector.textfile.directory` is set **and** `textfile` is
-in `include`. Passthrough of the operator-supplied `.prom` files that `/metrics`
-appends verbatim, parsed into samples.
-
-```jsonc
-"textfile": {
-  "samples": [
-    { "name": "my_metric", "labels": { "foo": "bar" }, "value": 1.5 }
-  ],
-  "files": [
-    { "name": "custom.prom", "readErrors": 0, "parseError": "" }
-  ]
-}
-```
-
-`samples` is ordered by `name` ascending, then by the canonical serialisation of
-`labels`. `labels` is `{}` when the sample is unlabelled, never `null`.
-
-A file that fails to parse contributes no samples and records its reason in
-`files[].parseError`. **A parse failure does not fail the request** — operator
-text is untrusted input, and one bad file must not take down the endpoint.
-
----
+Under `--collector.f2b.ip-anonymize=mask`, repeat-offender counting groups by
+masked label, so distinct attackers inside one block collapse into a single,
+more-frequently-banned "offender". `repeatOffenderSpike` can therefore fire on
+ban data that would not trigger it under `none` or `hash`. This is a real
+side effect of the privacy setting, not a bug.
 
 ## 4. Relationship to `/metrics`
 
@@ -372,8 +439,24 @@ Four deliberate departures from the Prometheus exposition:
 4. **`truncated` is explicit**, rather than `--collector.f2b.max-ip-metrics`
    silently dropping series with a log line.
 
-Both endpoints are served from the same `Collector.Snapshot()` gather and the
-same 60s database cache, so polling JSON does not double the SQLite load.
+And one deliberate omission: **textfile-collector output is out of scope.**
+`--collector.textfile.directory` files are parsed by an independently
+registered `prometheus.Collector` and appear on `/metrics` as ordinary typed
+metrics, with no relationship to the fail2ban domain snapshot. `/metrics.json`
+reflects `f2b.Collector.Snapshot()`, not the full contents of the default
+gatherer; a consumer wanting textfile data reads `/metrics`. This also keeps
+untrusted, operator-authored floating-point values (legally `NaN` / `±Inf` in
+the Prometheus text format, and rejected outright by `encoding/json`) off the
+JSON path entirely.
+
+Both endpoints' fail2ban sections are served from the same
+`Collector.Snapshot()` gather and the same 60s database cache, so polling JSON
+does not double the SQLite load.
+
+Any float that does reach the envelope (`score`, `velocityPerHour`,
+`suspiciousScore`, `geo.lat` / `geo.lon`) must be checked for `NaN` and `±Inf`
+before serialisation and omitted if non-finite — `encoding/json.Marshal` fails
+the whole response otherwise.
 
 ---
 
