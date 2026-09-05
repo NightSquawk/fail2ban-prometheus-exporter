@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
@@ -72,12 +73,71 @@ func scrapeTimeout(r *http.Request) (time.Duration, bool) {
 	return time.Duration(seconds * float64(time.Second)), true
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request, collector *f2b.Collector) {
-	if collector.IsHealthy() {
+// healthContentType is set on every /health response, in both modes below.
+const healthContentType = "application/json; charset=utf-8"
+
+// healthResponse is the bare {"healthy":bool} body served when
+// --web.health.minimal is set.
+type healthResponse struct {
+	Healthy bool `json:"healthy"`
+}
+
+// healthResponseWithIdentity is the default /health body: bare health plus
+// exporter identity, so an operator hitting the endpoint learns what is
+// actually running there. A distinct type from healthResponse - rather than
+// one struct with `omitempty` identity fields - so the minimal shape stays
+// exactly {"healthy":bool} regardless of what Exporter/Version happen to
+// hold at runtime (an omitempty field would also vanish on a genuinely empty
+// version string, silently reproducing the minimal shape when identity
+// reporting was actually requested).
+type healthResponseWithIdentity struct {
+	Healthy  bool   `json:"healthy"`
+	Exporter string `json:"exporter"`
+	Version  string `json:"version"`
+}
+
+// healthHandler serves /health. It is registered bare in server.go, never
+// wrapped in AuthMiddleware: the container healthcheck shim (./health, baked
+// into both Dockerfile and Dockerfile.goreleaser) is an unauthenticated
+// `curl --fail` that keys entirely on the HTTP status, so this endpoint must
+// stay reachable with no credentials and must keep returning exactly 200
+// (healthy) or 500 (unhealthy) - never anything else on the unhealthy path.
+//
+// By default the body also reports exporter identity (name + version);
+// minimal restores the old bare {"healthy":bool} shape for operators who
+// consider the version string a disclosure on an unauthenticated endpoint
+// (--web.health.minimal).
+func healthHandler(w http.ResponseWriter, r *http.Request, collector *f2b.Collector, minimal bool) {
+	healthy := collector.IsHealthy()
+
+	// Marshal into a buffer before writing the status, the same discipline
+	// /metrics.json uses (server/metrics_json.go): a serialisation failure
+	// must never leave a 200/500 half-written on the wire.
+	var body []byte
+	var err error
+	if minimal {
+		body, err = json.Marshal(healthResponse{Healthy: healthy})
+	} else {
+		name, version := collector.Identity()
+		body, err = json.Marshal(healthResponseWithIdentity{
+			Healthy:  healthy,
+			Exporter: name,
+			Version:  version,
+		})
+	}
+	if err != nil {
+		// Both shapes above are fixed, simple values (a bool and up to two
+		// plain strings) that cannot fail to marshal in practice; fall back
+		// to the bare shape rather than send nothing.
+		log.Printf("health: failed to marshal response: %v", err)
+		body, _ = json.Marshal(healthResponse{Healthy: healthy})
+	}
+
+	w.Header().Set("Content-Type", healthContentType)
+	if healthy {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("{\"healthy\":true}"))
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("{\"healthy\":false}"))
 	}
+	_, _ = w.Write(body)
 }

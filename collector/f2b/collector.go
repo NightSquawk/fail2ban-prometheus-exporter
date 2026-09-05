@@ -15,7 +15,10 @@
 // the other three fail silently by design (a geo or alert hiccup should not
 // take down the whole scrape). Consolidating these into one shared
 // connection would change that error accounting - e.g. turning a single
-// socket_req error into three or four - so do not do it.
+// socket_req error into three or four - so do not do it. IsHealthy's own
+// dial (collector.go), backing the unauthenticated /health endpoint, never
+// touches these counters either, and for a stronger reason: see the comment
+// on IsHealthy.
 package f2b
 
 import (
@@ -241,6 +244,18 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	c.flatten(ch, snap)
 }
 
+// IsHealthy backs the unauthenticated /health endpoint (server/handler.go):
+// it dials the fail2ban socket and requires a successful ping. Deliberately
+// NOT incremented here: socketConnectionErrorCount / socketRequestErrorCount.
+// Those two feed f2b_errors_total{type="socket_conn"|"socket_req"} on
+// /metrics, and /health has no auth in front of it - anyone who can reach the
+// port could otherwise inflate an alerted-on counter for free by hammering
+// /health while fail2ban is down, with no credentials and no trace. Collect()
+// (the /metrics scrape path) is unaffected: its own top-level dial in
+// snapshotLocked still counts every failure exactly as before. Everything
+// else about the probe - taking c.mu, dialing with c.socketTimeout, closing
+// the socket it opens, and logging the failure so the operator can still see
+// it - is unchanged.
 func (c *Collector) IsHealthy() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -248,16 +263,26 @@ func (c *Collector) IsHealthy() bool {
 	s, err := socket.ConnectToSocketTimeout(c.socketPath, c.socketTimeout)
 	if err != nil {
 		log.Printf("error opening socket: %v", err)
-		c.socketConnectionErrorCount++
 		return false
 	}
+	defer s.Close()
+
 	pingSuccess, err := s.Ping()
 	if err != nil {
 		log.Printf("error pinging fail2ban server: %v", err)
-		c.socketRequestErrorCount++
 		return false
 	}
 	return pingSuccess
+}
+
+// Identity returns the exporter's constant name and its build-time version,
+// for callers - such as the /health handler - that need to report exporter
+// identity without hardcoding a second copy of either value. exporterName is
+// a package const and exporterVersion is set once at construction and never
+// mutated afterward, so - like EffectiveMaxIPs (snapshot.go) - this is safe
+// to call without holding c.mu.
+func (c *Collector) Identity() (name, version string) {
+	return exporterName, c.exporterVersion
 }
 
 func printFail2BanServerVersion(socketPath string, timeout time.Duration) {

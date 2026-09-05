@@ -16,6 +16,7 @@ var cliStruct struct {
 	DryRunMode               bool          `name:"dry-run" help:"Attempt to connect to the fail2ban socket then exit before starting the server"`
 	ServerAddress            string        `name:"web.listen-address" env:"F2B_WEB_LISTEN_ADDRESS" help:"Address to use for the metrics server" default:"${default_address}"`
 	WebConfigFile            string        `name:"web.config-file" env:"F2B_WEB_CONFIG_FILE" help:"Path to a prometheus/exporter-toolkit web config file, enabling TLS, mTLS and multi-user basic auth"`
+	WebHealthMinimal         bool          `name:"web.health.minimal" env:"F2B_WEB_HEALTH_MINIMAL" help:"Omit exporter name and version from /health, for operators who do not want an unauthenticated endpoint disclosing the running version"`
 	F2bSocketPath            string        `name:"collector.f2b.socket" env:"F2B_COLLECTOR_SOCKET" help:"Path to the fail2ban server socket" default:"${default_socket}"`
 	F2bDatabasePath          string        `name:"collector.f2b.database" env:"F2B_COLLECTOR_DATABASE" help:"Path to the fail2ban SQLite database (e.g. /var/lib/fail2ban/fail2ban.sqlite3). Empty disables database-backed metrics" default:"${default_database}"`
 	F2bTimeout               time.Duration `name:"collector.f2b.timeout" env:"F2B_COLLECTOR_TIMEOUT" help:"Timeout for connecting to the fail2ban socket and for each command sent over it (0 = no timeout)" default:"5s"`
@@ -61,6 +62,7 @@ func Parse() *AppSettings {
 		DryRunMode:            cliStruct.DryRunMode,
 		MetricsAddress:        cliStruct.ServerAddress,
 		WebConfigFile:         cliStruct.WebConfigFile,
+		WebHealthMinimal:      cliStruct.WebHealthMinimal,
 		Fail2BanSocketPath:    cliStruct.F2bSocketPath,
 		Fail2BanDatabasePath:  cliStruct.F2bDatabasePath,
 		Fail2BanTimeout:       cliStruct.F2bTimeout,

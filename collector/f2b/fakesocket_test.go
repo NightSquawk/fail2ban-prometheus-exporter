@@ -122,10 +122,11 @@ func (s *fakeF2BServer) SetMalformed(v bool) {
 // open. net.Listen("unix", ...) unlinks the socket file on Close, so
 // subsequent dials to this path fail outright - this is how tests simulate
 // fail2ban refusing connections entirely. Force-closing live connections
-// (rather than waiting for clients to hang up) matters because at least one
-// production call site (Collector.IsHealthy) never closes its socket; left
-// alone, that connection's handleConn goroutine would block on read forever
-// and wg.Wait below would never return.
+// (rather than waiting for clients to hang up) matters because a test that
+// ends without every client having hung up - e.g. one asserting mid-gather
+// behaviour, or a future call site that forgets its own Close - would
+// otherwise leave a handleConn goroutine blocked on read forever, and
+// wg.Wait below would never return.
 func (s *fakeF2BServer) Close() {
 	_ = s.listener.Close()
 

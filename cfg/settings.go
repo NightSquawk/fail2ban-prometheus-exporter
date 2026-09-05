@@ -58,6 +58,7 @@ type AppSettings struct {
 	DryRunMode            bool
 	MetricsAddress        string
 	WebConfigFile         string
+	WebHealthMinimal      bool
 	Fail2BanSocketPath    string
 	Fail2BanDatabasePath  string
 	Fail2BanTimeout       time.Duration

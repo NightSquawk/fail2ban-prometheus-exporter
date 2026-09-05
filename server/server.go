@@ -37,7 +37,7 @@ func StartServer(
 	))
 	mux.HandleFunc("/health",
 		func(w http.ResponseWriter, r *http.Request) {
-			healthHandler(w, r, f2bCollector)
+			healthHandler(w, r, f2bCollector, appSettings.WebHealthMinimal)
 		},
 	)
 	log.Printf("metrics available at '%s'", metricsPath)
