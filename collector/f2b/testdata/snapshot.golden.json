@@ -1,0 +1,308 @@
+{
+  "schemaVersion": 1,
+  "collectedAt": "2025-01-15T08:00:00Z",
+  "collectionDurationMs": 0,
+  "exporter": {
+    "name": "fail2ban-prometheus-exporter",
+    "version": "1.2.0-beta-test",
+    "commit": ""
+  },
+  "host": {
+    "hostname": "test-host"
+  },
+  "labels": {
+    "customerId": "cust-1",
+    "customerName": "Acme Corp",
+    "tenantId": "tenant-42"
+  },
+  "fail2ban": {
+    "up": true,
+    "version": "1.0.2",
+    "databaseEnabled": true,
+    "geoEnabled": true
+  },
+  "errors": {
+    "socketConn": 0,
+    "socketReq": 0,
+    "collection": 0
+  },
+  "jails": [
+    {
+      "name": "apache-auth",
+      "filter": {
+        "currentlyFailed": 0,
+        "totalFailed": 5
+      },
+      "actions": {
+        "currentlyBanned": 1,
+        "totalBanned": 2
+      },
+      "config": {
+        "banTimeSeconds": 7200,
+        "findTimeSeconds": 300,
+        "maxRetry": 3
+      }
+    },
+    {
+      "name": "recidive",
+      "filter": {
+        "currentlyFailed": 0,
+        "totalFailed": 0
+      },
+      "actions": {
+        "currentlyBanned": 0,
+        "totalBanned": 0
+      },
+      "config": {
+        "banTimeSeconds": 86400,
+        "findTimeSeconds": 600,
+        "maxRetry": 3
+      }
+    },
+    {
+      "name": "sshd",
+      "filter": {
+        "currentlyFailed": 3,
+        "totalFailed": 42
+      },
+      "actions": {
+        "currentlyBanned": 3,
+        "totalBanned": 10
+      },
+      "config": {
+        "banTimeSeconds": 3600,
+        "findTimeSeconds": 600,
+        "maxRetry": 5
+      }
+    }
+  ],
+  "bans": {
+    "returned": 1,
+    "total": 1,
+    "truncated": false,
+    "items": [
+      {
+        "jail": "sshd",
+        "ip": "203.0.113.99",
+        "bannedAt": "2025-01-15T07:00:00Z",
+        "expiresAt": "2124-12-22T07:00:00Z",
+        "ageSeconds": 3600,
+        "remainingSeconds": 3153596400,
+        "banCount": 1,
+        "firstSeenAt": "2025-01-15T07:00:00Z",
+        "lastSeenAt": "2025-01-15T07:00:00Z",
+        "repeatOffender": false,
+        "geo": {
+          "countryCode": "US",
+          "country": "United States",
+          "city": "Chicago",
+          "lat": 41.8781,
+          "lon": -87.6298
+        }
+      }
+    ]
+  },
+  "patterns": [
+    {
+      "type": "brute_force",
+      "jail": "sshd",
+      "ip": "203.0.113.10",
+      "score": 30
+    },
+    {
+      "type": "distributed",
+      "jail": "sshd",
+      "ip": "",
+      "score": 32
+    },
+    {
+      "type": "port_scan",
+      "jail": "sshd",
+      "ip": "",
+      "score": 30
+    }
+  ],
+  "geo": {
+    "byCountry": [
+      {
+        "countryCode": "US",
+        "country": "United States",
+        "attacks": 2,
+        "rank": 1
+      },
+      {
+        "countryCode": "RU",
+        "country": "Russia",
+        "attacks": 1,
+        "rank": 2
+      }
+    ],
+    "byCity": [
+      {
+        "city": "Los Angeles",
+        "countryCode": "US",
+        "country": "United States",
+        "attacks": 1
+      },
+      {
+        "city": "Moscow",
+        "countryCode": "RU",
+        "country": "Russia",
+        "attacks": 1
+      },
+      {
+        "city": "New York",
+        "countryCode": "US",
+        "country": "United States",
+        "attacks": 1
+      }
+    ]
+  },
+  "activity": {
+    "byHour": [
+      {
+        "hour": 0,
+        "attacks": 0
+      },
+      {
+        "hour": 1,
+        "attacks": 1
+      },
+      {
+        "hour": 2,
+        "attacks": 1
+      },
+      {
+        "hour": 3,
+        "attacks": 1
+      },
+      {
+        "hour": 4,
+        "attacks": 1
+      },
+      {
+        "hour": 5,
+        "attacks": 1
+      },
+      {
+        "hour": 6,
+        "attacks": 2
+      },
+      {
+        "hour": 7,
+        "attacks": 2
+      },
+      {
+        "hour": 8,
+        "attacks": 0
+      },
+      {
+        "hour": 9,
+        "attacks": 0
+      },
+      {
+        "hour": 10,
+        "attacks": 0
+      },
+      {
+        "hour": 11,
+        "attacks": 0
+      },
+      {
+        "hour": 12,
+        "attacks": 0
+      },
+      {
+        "hour": 13,
+        "attacks": 0
+      },
+      {
+        "hour": 14,
+        "attacks": 0
+      },
+      {
+        "hour": 15,
+        "attacks": 0
+      },
+      {
+        "hour": 16,
+        "attacks": 0
+      },
+      {
+        "hour": 17,
+        "attacks": 0
+      },
+      {
+        "hour": 18,
+        "attacks": 0
+      },
+      {
+        "hour": 19,
+        "attacks": 0
+      },
+      {
+        "hour": 20,
+        "attacks": 0
+      },
+      {
+        "hour": 21,
+        "attacks": 0
+      },
+      {
+        "hour": 22,
+        "attacks": 1
+      },
+      {
+        "hour": 23,
+        "attacks": 0
+      }
+    ],
+    "byDayOfWeek": [
+      {
+        "day": 0,
+        "attacks": 0
+      },
+      {
+        "day": 1,
+        "attacks": 0
+      },
+      {
+        "day": 2,
+        "attacks": 1
+      },
+      {
+        "day": 3,
+        "attacks": 9
+      },
+      {
+        "day": 4,
+        "attacks": 0
+      },
+      {
+        "day": 5,
+        "attacks": 0
+      },
+      {
+        "day": 6,
+        "attacks": 0
+      }
+    ],
+    "velocityPerHour": 2,
+    "suspiciousScore": 75
+  },
+  "alerts": {
+    "highBanRate": false,
+    "repeatOffenderSpike": false,
+    "newCountries": [
+      "RU",
+      "US"
+    ],
+    "jailInactive": [],
+    "coordinatedAttack": [
+      {
+        "jail": "sshd",
+        "countryCode": "US"
+      }
+    ]
+  }
+}

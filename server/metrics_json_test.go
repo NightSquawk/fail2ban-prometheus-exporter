@@ -328,6 +328,173 @@ func TestMetricsJSONIfNoneMatchReturns304WithEmptyBody(t *testing.T) {
 	}
 }
 
+// TestMetricsJSONIfNoneMatchMalformedHeaderNeither500Nor304 covers the
+// coverage gaps in If-None-Match handling beyond wildcard/weak/list (already
+// covered by TestMetricsJSONIfNoneMatchReturns304WithEmptyBody): a malformed
+// header must never 500, and - the sharper failure mode - must never be
+// mistaken for a match and wrongly served 304. Serving 304 to a client that
+// never actually saw a matching ETag is a correctness bug that masquerades
+// as a cache win: the client is left believing it already has the body it
+// does not have.
+func TestMetricsJSONIfNoneMatchMalformedHeaderNeither500Nor304(t *testing.T) {
+	malformed := []string{
+		",",
+		",,,",
+		"not-an-etag-at-all",
+		`"sha256-truncated`,          // unterminated quote
+		"W/",                         // weak prefix with nothing after it
+		" , , ",                      // only whitespace and separators
+		`"sha256-` + string(rune(0)), // embedded NUL byte
+	}
+	for _, header := range malformed {
+		t.Run(header, func(t *testing.T) {
+			collector := newDownSocketCollector(t)
+			rec := doMetricsJSON(t, collector, http.MethodGet, "/metrics.json", http.Header{"If-None-Match": {header}})
+
+			if rec.Code == http.StatusNotModified {
+				t.Errorf("malformed If-None-Match %q: status = 304, want NOT 304 (never saw a body to have cached)", header)
+			}
+			if rec.Code >= 500 {
+				t.Errorf("malformed If-None-Match %q: status = %d, want < 500", header, rec.Code)
+			}
+			if rec.Code != http.StatusOK {
+				t.Errorf("malformed If-None-Match %q: status = %d, want 200", header, rec.Code)
+			}
+			if rec.Body.Len() == 0 {
+				t.Errorf("malformed If-None-Match %q: expected a non-empty 200 body", header)
+			}
+		})
+	}
+}
+
+// TestMetricsJSONDownSocketAllSectionsAre200WithEmptySections is the
+// end-to-end version of docs/metrics-json-schema-v1.md §1.4's "a down
+// fail2ban socket is not an error": requesting every section against a
+// down-socket collector must still be 200, with fail2ban.up=false and every
+// jail-derived section present but empty - never a 500, and never merely the
+// default include's two sections (this asserts all six explicitly).
+func TestMetricsJSONDownSocketAllSectionsAre200WithEmptySections(t *testing.T) {
+	collector := newDownSocketCollector(t)
+	rec := doMetricsJSON(t, collector, http.MethodGet, "/metrics.json?include=jails,bans,patterns,geo,activity,alerts", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Fail2ban struct {
+			Up bool `json:"up"`
+		} `json:"fail2ban"`
+		Jails []json.RawMessage `json:"jails"`
+		Bans  struct {
+			Returned  int               `json:"returned"`
+			Total     int               `json:"total"`
+			Truncated bool              `json:"truncated"`
+			Items     []json.RawMessage `json:"items"`
+		} `json:"bans"`
+		Patterns []json.RawMessage `json:"patterns"`
+		Geo      struct {
+			ByCountry []json.RawMessage `json:"byCountry"`
+			ByCity    []json.RawMessage `json:"byCity"`
+		} `json:"geo"`
+		Activity struct {
+			ByHour          []json.RawMessage `json:"byHour"`
+			ByDayOfWeek     []json.RawMessage `json:"byDayOfWeek"`
+			VelocityPerHour float64           `json:"velocityPerHour"`
+			SuspiciousScore float64           `json:"suspiciousScore"`
+		} `json:"activity"`
+		Alerts struct {
+			HighBanRate         bool              `json:"highBanRate"`
+			RepeatOffenderSpike bool              `json:"repeatOffenderSpike"`
+			NewCountries        []json.RawMessage `json:"newCountries"`
+			JailInactive        []json.RawMessage `json:"jailInactive"`
+			CoordinatedAttack   []json.RawMessage `json:"coordinatedAttack"`
+		} `json:"alerts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body did not parse: %v (%s)", err, rec.Body.String())
+	}
+
+	if body.Fail2ban.Up {
+		t.Error("fail2ban.up = true, want false for a down socket")
+	}
+	if len(body.Jails) != 0 {
+		t.Errorf("jails = %v, want empty", body.Jails)
+	}
+	if body.Bans.Returned != 0 || body.Bans.Total != 0 || body.Bans.Truncated || len(body.Bans.Items) != 0 {
+		t.Errorf("bans = %+v, want {returned:0 total:0 truncated:false items:[]}", body.Bans)
+	}
+	if len(body.Patterns) != 0 {
+		t.Errorf("patterns = %v, want empty", body.Patterns)
+	}
+	if len(body.Geo.ByCountry) != 0 || len(body.Geo.ByCity) != 0 {
+		t.Errorf("geo = %+v, want empty arrays", body.Geo)
+	}
+	if len(body.Activity.ByHour) != 24 {
+		t.Errorf("activity.byHour has %d entries, want 24 (zero-filled)", len(body.Activity.ByHour))
+	}
+	if len(body.Activity.ByDayOfWeek) != 7 {
+		t.Errorf("activity.byDayOfWeek has %d entries, want 7 (zero-filled)", len(body.Activity.ByDayOfWeek))
+	}
+	if body.Activity.VelocityPerHour != 0 || body.Activity.SuspiciousScore != 0 {
+		t.Errorf("activity velocity/suspiciousScore = %v/%v, want 0/0", body.Activity.VelocityPerHour, body.Activity.SuspiciousScore)
+	}
+	if body.Alerts.HighBanRate || body.Alerts.RepeatOffenderSpike {
+		t.Errorf("alerts highBanRate/repeatOffenderSpike = %v/%v, want false/false", body.Alerts.HighBanRate, body.Alerts.RepeatOffenderSpike)
+	}
+	if len(body.Alerts.NewCountries) != 0 || len(body.Alerts.JailInactive) != 0 || len(body.Alerts.CoordinatedAttack) != 0 {
+		t.Errorf("alerts arrays = %+v, want all empty", body.Alerts)
+	}
+
+	// The typed struct above cannot tell a JSON `null` apart from an absent
+	// or empty array: json.Unmarshal silently decodes `null` into a nil Go
+	// slice with no error, so every len(...) == 0 assertion above would
+	// still pass even if a regression made, e.g., zeroActivitySnapshot or
+	// buildAlerts emit `var x []T` (nil) instead of `x := []T{}`.
+	// docs/metrics-json-schema-v1.md §1.1 requires a requested section with
+	// no data to serialise as `[]` or a zero-count object, never `null` -
+	// assert directly against the raw bytes, the same technique
+	// TestMetricsJSONRequestedSectionPresentButEmpty already uses for
+	// "bans".
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("body did not parse as a JSON object: %v", err)
+	}
+	for _, section := range []string{"jails", "bans", "patterns", "geo", "activity", "alerts"} {
+		raw, ok := envelope[section]
+		if !ok {
+			t.Errorf("requested section %q is absent from the response, want present", section)
+			continue
+		}
+		if string(raw) == "null" {
+			t.Errorf("requested section %q serialised as null, want [] or a zero-count object", section)
+		}
+	}
+
+	assertObjectFieldsNotNull(t, envelope["bans"], "items")
+	assertObjectFieldsNotNull(t, envelope["geo"], "byCountry", "byCity")
+	assertObjectFieldsNotNull(t, envelope["activity"], "byHour", "byDayOfWeek")
+	assertObjectFieldsNotNull(t, envelope["alerts"], "newCountries", "jailInactive", "coordinatedAttack")
+}
+
+// assertObjectFieldsNotNull unmarshals objectRaw (a JSON object) and fails if
+// any of fields is present as literal `null`. A field absent entirely is not
+// flagged here - callers that also care about presence should check that
+// separately - this only guards against the null-vs-empty-array conflation
+// that a typed []json.RawMessage struct field cannot detect.
+func assertObjectFieldsNotNull(t *testing.T, objectRaw json.RawMessage, fields ...string) {
+	t.Helper()
+	var nested map[string]json.RawMessage
+	if err := json.Unmarshal(objectRaw, &nested); err != nil {
+		t.Fatalf("object did not parse: %v (%s)", err, objectRaw)
+	}
+	for _, field := range fields {
+		raw, ok := nested[field]
+		if ok && string(raw) == "null" {
+			t.Errorf("field %q serialised as null, want [] (raw object: %s)", field, objectRaw)
+		}
+	}
+}
+
 func TestMetricsJSONIfNoneMatchMismatchStillServes200(t *testing.T) {
 	collector := newDownSocketCollector(t)
 	header := http.Header{"If-None-Match": {`"sha256-0000000000000000000000000000000000000000000000000000000000000000"`}}
