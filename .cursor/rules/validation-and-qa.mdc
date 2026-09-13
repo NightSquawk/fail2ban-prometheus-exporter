@@ -1,0 +1,28 @@
+---
+description: Validation and definition of done
+alwaysApply: true
+---
+
+# Validation and definition of done
+
+- Choose checks that exercise the changed behavior. For Go changes, run affected
+  package tests during development and the CI gates before handoff:
+  `go test ./... -race`, `go vet ./...`, and `gofmt -l .` (expect no output).
+  Check the pure Go build with `CGO_ENABLED=0 go build -o <temporary-binary> .`.
+- For documentation-only work, verify paths, commands, rule mirrors, and the
+  diff. Do not invent runtime tests or rerun the application suite solely for
+  prose edits. Script changes require exercising success and failure behavior.
+- Use existing fake Unix sockets, temporary SQLite fixtures, injected clocks,
+  `httptest`, and golden fixtures. Tests must not require a live Fail2Ban daemon,
+  a production database, or a licensed geo database.
+- For collection changes, cover unavailable sources, empty data, filtering,
+  privacy, caps, and relevant concurrent scrape/JSON/health behavior. For auth
+  changes, cover unauthenticated, rejected, and accepted requests on both metrics
+  endpoints, including exporter-toolkit and legacy configurations as applicable.
+- Read golden diffs before accepting them. Never regenerate expected output just
+  to make a failure disappear; document intentional contract changes.
+- If a check fails, distinguish an introduced failure from a pre-existing or
+  environment failure with evidence. Do not label skipped checks as passing.
+- After checks pass, review `git diff --check`, the scoped diff, and status.
+  Report the checks actually run and whether real-daemon verification occurred.
+- See `docs/development.md` for the package-to-test mapping and packaging checks.

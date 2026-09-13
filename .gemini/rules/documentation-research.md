@@ -1,0 +1,17 @@
+# Documentation and research
+
+- Start with local source, tests, `go.mod`, CI, README, and the JSON schema.
+  Treat roadmap entries and old examples as claims to verify, not ground truth.
+- When changing a dependency API or tool configuration, verify against the
+  pinned version's source or official documentation. Use Context7 when available
+  and relevant; otherwise use official upstream documentation/source. This repo
+  does not require a particular MCP server or a machine-specific installation.
+- Record relevant evidence and limitations in a commit/PR description or task
+  handoff. Distinguish source review, synthetic tests, real-daemon checks, and
+  production verification; none implies the next.
+- Explain user-visible changes in plain language, with accurate flags, units,
+  and examples. Keep durable docs in tracked `docs/` files and operating examples
+  in `_examples/`; avoid references to private memory or another checkout.
+- Update shared project facts in `AGENTS.md` and the canonical rule bodies in
+  `.claude/rules/`. Synchronize mirrors with `scripts/sync-agent-rules.py` and run
+  its check mode. Keep CLAUDE/Gemini entry files small to prevent factual drift.

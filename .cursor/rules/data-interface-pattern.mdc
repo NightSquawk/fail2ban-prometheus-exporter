@@ -1,0 +1,38 @@
+---
+description: Collector and data-interface contract
+alwaysApply: true
+---
+
+# Collector and data-interface contract
+
+Before adding or changing a collected signal, establish its source, units,
+availability, cost, label cardinality, reset/window semantics, and behavior when
+the source is missing. Follow the whole path to its consumers:
+
+1. Add protocol/query/provider behavior in the owning package. Keep database and
+   geo prerequisites explicit, optional, and testable with local fixtures.
+2. Gather domain values in `collector/f2b/snapshot.go`. Preserve a single gather
+   timestamp, mutex ownership, and the common source for both output formats.
+3. Define Prometheus descriptors and render from the snapshot in `flatten.go`.
+   Preserve names, types, labels, and units unless the change explicitly includes
+   compatibility/migration work. New counters must be monotonic except resets;
+   rolling windows and purged row counts need honest semantics. See `ROADMAP.md`
+   for existing historical-counter limitations; do not silently rename them.
+4. Apply jail include/exclude consistently (exclude wins), then privacy collapse
+   and per-IP limits as specified for each output. Truncating detail must not
+   truncate aggregate totals. A JSON request must not widen the configured cap.
+5. Update JSON fields only with the versioned schema in view. Preserve ordering,
+   omitted versus empty/null sections, timestamp units, and finite JSON numbers.
+   JSON reflects the Fail2Ban domain; textfile metrics remain Prometheus-only.
+6. Preserve state ownership: only Prometheus collection consumes pending alert
+   edges. JSON gathering leaves `MutateAlertState` and
+   `HonorExitOnSocketConnError` false; health checks are non-mutating probes.
+7. Keep ETags based on the documented time-stripped projection and normalized
+   effective request scope. Changing socket error counters still changes the
+   digest during outages. Serialize fully before committing a successful response.
+8. Update appropriate snapshot/Prometheus goldens, privacy/filter/auth regression
+   tests, schema docs, metric tables, and affected Grafana queries. Mark a
+   non-applicable consumer explicitly in the handoff rather than silently omitting it.
+
+Do not call a new collector complete because it compiles: demonstrate the signal
+and failure behavior through the output formats it is intended to support.

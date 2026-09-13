@@ -1,0 +1,25 @@
+---
+description: Core instructions
+alwaysApply: true
+---
+
+# Core instructions
+
+- Read the affected code, tests, and operator contract before editing. Resolve
+  disagreements between plans and implemented behavior using evidence; identify
+  a bug as a bug rather than documenting it as an intentional guarantee.
+- Make the requested change directly and keep it focused. Preserve unrelated
+  work. Explain a flawed premise and a concrete alternative when necessary.
+- Keep HTTP handlers thin: validate input, call collector logic, serialize the
+  result. Protocol decoding belongs in `socket/`; database queries belong in
+  `collector/database/`; formatting must not reimplement collection.
+- Preserve the shared snapshot/flatten architecture. Do not add HTTP dependencies
+  to domain collection or make one local collector call another via HTTP.
+- Keep the exporter observational: do not add ban/unban actions, mutate Fail2Ban
+  configuration, or migrate its database as an incidental exporter change.
+- Use the module's existing Go conventions and error wrapping. Avoid unrelated
+  dependency updates, abstractions, formatting sweeps, and generated binaries.
+- Report what changed, what was verified, and any remaining limits. Do not claim
+  runtime, release, security, or compatibility verification from a build alone.
+- If delegation is used, provide each agent the relevant rules, explicit file
+  ownership, and verification expectations. Do not assume rules were inherited.

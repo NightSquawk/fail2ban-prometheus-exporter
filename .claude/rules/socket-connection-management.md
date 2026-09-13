@@ -1,0 +1,23 @@
+# Socket and resource lifecycle
+
+- Open Fail2Ban connections through `ConnectToSocketTimeout` with the configured
+  timeout. Preserve the documented `0 = no timeout` option; do not silently use
+  the legacy unbounded helper in production paths.
+- Close every successfully opened socket on every return path, normally with
+  `defer`. Health probes require the same cleanup as scrapes. Do not rely on GC.
+- Bound both dial and per-command read/write operations. Per-command timeouts
+  are not a total gather budget; account for the number of commands and jails.
+- Preserve command framing, fragmented-response handling, typed error wrapping,
+  and decoder checks. Malformed responses must return errors rather than panic.
+- Respect `Collector.mu`: mutable cache, error, and alert state is shared by
+  scrapes, JSON polls, and health probes. Do not take the mutex recursively or
+  expose mutable maps/slices to unsynchronized callers.
+- Avoid unbounded goroutines, connections, retries, and queues of duplicate
+  work. A `promhttp` timeout response does not itself cancel a blocked gather.
+- Retain HTTP server timeouts and the JSON endpoint's documented exception:
+  `/metrics.json` clears read/write deadlines for a complete response and has no
+  request-scoped gather timeout. Socket command deadlines still apply. Changing
+  that behavior requires a deliberate schema-contract change and regression proof.
+- Close SQL rows, files, and geo readers at the appropriate owner lifecycle;
+  check iteration errors. Do not close a shared provider after an individual
+  scrape. For new reload/shutdown logic, test replacement and cleanup paths.
