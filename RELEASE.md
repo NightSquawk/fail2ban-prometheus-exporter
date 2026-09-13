@@ -2,6 +2,12 @@
 
 This document describes how to create a new release of the fail2ban-prometheus-exporter.
 
+Read [the development workflow](docs/development.md) and the actual
+[release workflow](.github/workflows/release.yml) before publishing. Pushing a
+matching branch (`version-*`, `release/*`, or the workflow's dotted version
+patterns, including `1.2.0-beta`) or a `v*` tag can automatically publish a release.
+Use an ordinary feature branch for work that is not ready for publication.
+
 ## Release Workflow
 
 We use **branch-based versioning** where the version is determined by the branch name. This allows you to work on a specific version in isolation before releasing.
@@ -17,12 +23,19 @@ We use **branch-based versioning** where the version is determined by the branch
    git checkout -b version-1.0.0
    ```
 
-2. **Make any final adjustments** (update CHANGELOG.md, version in code if needed, etc.)
+2. **Make any final adjustments and validate** using the Go test, vet, formatting,
+   and build checks in [the development workflow](docs/development.md). Stable
+   releases must create or update `CHANGELOG.md`; beta/alpha/rc releases use
+   `CHANGELOG-BETA.md`. Confirm the intended version and linker-injected metadata.
 
 3. **Commit and push the branch:**
    ```bash
-   git add .
-   git commit -m "Prepare release 1.0.0"
+   # Example for a stable release changing only CHANGELOG.md.
+   # Substitute the explicit reviewed paths for your release on BOTH commands.
+   release_message=$(mktemp)
+   printf '%s\n' 'chore(release): prepare 1.0.0' > "$release_message"
+   git add -- CHANGELOG.md
+   git commit -F "$release_message" -- CHANGELOG.md
    git push origin version-1.0.0
    ```
 

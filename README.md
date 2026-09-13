@@ -2,6 +2,9 @@
 
 Collect metrics from a running fail2ban instance with optional geo-tagging support.
 
+Contributor workflow: [development guide](docs/development.md).
+Coding-agent guidance: [AGENTS.md](AGENTS.md).
+
 ## Table of Contents
 1. Quick Start
 2. Metrics
