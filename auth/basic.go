@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"net/http"
 )
@@ -21,7 +22,12 @@ func (p *basicAuthProvider) IsAllowed(request *http.Request) bool {
 		return false
 	}
 	requestAuth := encodeBasicAuth(username, password)
-	return p.hashedAuth == requestAuth
+	// Constant-time comparison: the configured and supplied credentials are
+	// hashed to a fixed-length digest first (see encodeBasicAuth/HashString),
+	// then compared with subtle.ConstantTimeCompare instead of `==` so the
+	// comparison does not leak timing information about how many leading
+	// bytes matched.
+	return subtle.ConstantTimeCompare([]byte(p.hashedAuth), []byte(requestAuth)) == 1
 }
 
 func encodeBasicAuth(username, password string) string {
