@@ -9,6 +9,9 @@ on:
       - 'v*'             # v1.0.0, v1.1.0, etc. (alternative method)
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build binaries
