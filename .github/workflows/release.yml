@@ -244,6 +244,7 @@ jobs:
           ls -lh packages/
     
       - name: Create tag
+        id: tag
         if: startsWith(github.ref, 'refs/heads/')
         run: |
           git config user.name "github-actions[bot]"
@@ -253,13 +254,20 @@ jobs:
           git fetch --tags
           # Check if tag already exists locally or remotely
           if git rev-parse "$TAG_NAME" >/dev/null 2>&1 || git ls-remote --tags origin "$TAG_NAME" | grep -q "$TAG_NAME"; then
-            echo "Tag $TAG_NAME already exists, skipping tag creation"
+            # A published release is immutable: rebuilding embeds a new build
+            # date, so re-uploading would silently change every asset checksum
+            # that downstream installers pin. Later pushes to this branch must
+            # not touch it — bump the version (new branch or v* tag) instead.
+            echo "Tag $TAG_NAME already exists; not re-publishing release assets"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$TAG_NAME already released; release assets left unchanged"
           else
             git tag -a "$TAG_NAME" -m "Release ${{ steps.get_version.outputs.version }}"
             git push origin "$TAG_NAME"
           fi
     
       - name: Create Release
+        if: steps.tag.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.get_version.outputs.version }}
